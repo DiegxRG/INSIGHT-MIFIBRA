@@ -532,14 +532,24 @@ Mientras esa capacidad no se confirme, el estado actual ya evita pedir detalle d
    - ahora usa preferentemente `lastFound`, `lastSeen` o `mostRecentInstance`;
    - ya no usa `published` como fecha de alarma.
 
+3. Semantica del flag `enabled` en el cliente de backend
+   - el cliente ya respeta `BACKEND_ENABLED=false` incluso si se invoca de forma directa;
+   - en modo deshabilitado no hace `POST` y devuelve un resultado consistente con `enabled=false` y `skipped=true`.
+
+4. Revision de artefactos Node accidentales
+   - se verifico que el repositorio no usa scripts Node ni dependencias npm para el flujo InsightVM;
+   - `package.json` y `package-lock.json` se identificaron como artefactos accidentales y fueron retirados.
+
+5. Mitigacion del patron N+1
+   - el colector ahora ejecuta en paralelo controlado la consulta de vulnerabilidades por asset y la carga de detalles unicos por `vulnerability_id`;
+   - se mantiene el mismo formato funcional, pero con menor latencia total en corridas con muchos assets o hallazgos.
+
 ### Pendiente
 
 1. Confirmar si `assets/{asset_id}/vulnerabilities` siempre devuelve `severity` en el ambiente real.
 2. Confirmar si InsightVM soporta filtro server-side en ese endpoint.
 3. Definir la regla final de deduplicacion en backend.
-4. Revisar performance del patron N+1 en ambientes grandes.
-5. Aclarar la semantica del resultado `enabled` en el flujo de envio.
-6. Confirmar si `package.json` y `package-lock.json` deben formar parte del repositorio.
+4. Validar en ambiente real si la mitigacion aplicada es suficiente o si todavia se requiere otra optimizacion de performance.
 
 ### 1. Paginacion de vulnerabilidades por asset
 
@@ -573,7 +583,7 @@ Accion recomendada:
 
 Estado:
 
-- el scheduler controla si se envia o no, pero la respuesta interna del backend client puede inducir a confusion si se usa por separado.
+- resuelto en codigo; el scheduler y el backend client ya mantienen el mismo criterio de habilitacion.
 
 Riesgo:
 
@@ -581,13 +591,13 @@ Riesgo:
 
 Accion recomendada:
 
-- unificar el significado de `enabled` o documentarlo como estado del cliente y no del ciclo.
+- completada: el cliente no envia cuando `BACKEND_ENABLED=false` y reporta `enabled=false` con `skipped=true`.
 
 ### 4. Regla de deduplicacion en backend
 
 Estado:
 
-- el payload ya incluye `asset_id` y `vulnerability_id`, pero no esta cerrada la regla exacta para evitar duplicados entre corridas.
+- queda pendiente por definicion funcional/backend. Del lado de esta integracion se asume envio de snapshots periodicos, potencialmente cada hora.
 
 Riesgo:
 
@@ -595,13 +605,22 @@ Riesgo:
 
 Accion recomendada:
 
-- definir una clave logica como `source + asset_id + vulnerability_id`, o agregar fecha si el negocio necesita historial temporal.
+- definir del lado del backend/BD si el snapshot horario debe:
+  - insertarse siempre como historial,
+  - consolidarse por clave logica,
+  - o actualizar una alerta activa existente.
+
+Decision actual del proyecto:
+
+- esta integracion no hara deduplicacion local persistente por ahora;
+- enviara snapshots segun la frecuencia configurada;
+- la optimizacion para evitar sobrecarga o duplicados en base de datos queda como responsabilidad pendiente del backend.
 
 ### 5. Performance por patron N+1
 
 Estado:
 
-- el flujo hace una consulta por asset para listar vulnerabilidades y una consulta adicional por vulnerabilidad filtrada para pedir detalle.
+- mitigado en codigo; el flujo sigue haciendo consultas por asset y por detalle, pero ahora las partes mas costosas se ejecutan con concurrencia controlada y detalle unico por `vulnerability_id`.
 
 Riesgo:
 
@@ -609,7 +628,7 @@ Riesgo:
 
 Accion recomendada:
 
-- evaluar filtros server-side, concurrencia controlada o endpoints agregados si InsightVM los ofrece.
+- completada parcialmente: se agrego concurrencia controlada en el colector. Sigue pendiente validar con InsightVM real si conviene ademas filtro server-side o algun endpoint agregado.
 
 ### 6. Doble filtro de severidad
 
@@ -631,14 +650,13 @@ Accion recomendada:
 2. Ese endpoint soporta filtro server-side por severidad u otro query util?
 3. Que fecha exacta espera el backend en `fechaalarma`?
 4. El backend persistira una sola tabla enriquecida o separara `alarmas` y `detalle`?
-5. `package.json` y `package-lock.json` forman parte real del repositorio o fueron agregados solo por pruebas/herramientas?
 
 ## Orden recomendado de trabajo
 
 1. Confirmar y asegurar paginacion en `assets/{asset_id}/vulnerabilities`.
 2. Definir el origen correcto de `fechaalarma`.
 3. Acordar la estrategia de deduplicacion en backend.
-4. Agregar pruebas de paginacion y del caso donde la severidad solo existe en el detalle.
+4. Confirmar comportamiento real del endpoint respecto a `severity` y filtros server-side.
 5. Revisar performance y posibles optimizaciones adicionales.
 
 ## Criterio tecnico actual
@@ -650,3 +668,37 @@ Los puntos mas sensibles antes de pasar a una etapa mas productiva son:
 1. no perder vulnerabilidades por paginacion,
 2. no usar una `fechaalarma` incorrecta,
 3. no duplicar registros entre corridas.
+
+En el estado actual, el punto 3 queda explicitamente delegado al backend si se decide operar con snapshots horarios sin deduplicacion local.
+
+## Estado para pruebas
+
+La integracion se considera lista para prueba controlada con ambiente real de InsightVM.
+
+Alcance disponible actualmente:
+
+1. Consulta de `assets`.
+2. Consulta paginada de `assets/{asset_id}/vulnerabilities`.
+3. Filtro temprano por severidad cuando el endpoint devuelve `severity`.
+4. Consulta de detalle por `vulnerability_id`.
+5. Construccion de payload enriquecido compatible con backend.
+6. Persistencia local de evidencia en `raw_api`, `filtered` y `prepared_backend`.
+7. Respeto de `BACKEND_ENABLED=false` para evitar envio real durante validaciones.
+8. Mitigacion de latencia del patron N+1 mediante concurrencia controlada.
+
+Criterio de integracion actual:
+
+- el sistema prepara un solo payload enriquecido por hallazgo;
+- el backend es quien decide si persiste en una sola tabla o separa en `alarmas` y `detalle`.
+
+Pendientes no bloqueantes para la prueba:
+
+1. Confirmar en ambiente real si `assets/{asset_id}/vulnerabilities` siempre devuelve `severity`.
+2. Confirmar si InsightVM soporta filtro server-side.
+3. Definir estrategia de deduplicacion del lado backend.
+4. Validar tiempos reales de ejecucion con volumen productivo.
+
+Conclusion:
+
+- el desarrollo actual queda listo para prueba tecnica/integrada;
+- la habilitacion productiva final depende de validar el comportamiento real de InsightVM y del backend receptor.

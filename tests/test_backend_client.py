@@ -4,7 +4,7 @@ from insightvm_pull.backend_client import BackendAlarmClient
 from insightvm_pull.config import Settings
 
 
-def _settings(url: str) -> Settings:
+def _settings(url: str, backend_enabled: bool = True) -> Settings:
     return Settings(
         insightvm_base_url="https://example/api/3",
         insightvm_user="u",
@@ -19,7 +19,7 @@ def _settings(url: str) -> Settings:
         log_level="INFO",
         log_file="logs/integration.log",
         payload_dir="payloads",
-        backend_enabled=True,
+        backend_enabled=backend_enabled,
         backend_url=url,
         backend_local="Txdxsecure",
         backend_alarm_type="1 - Alarma de seguridad",
@@ -116,4 +116,29 @@ def test_backend_prepare_filtered_findings_includes_extended_fields(backend_alar
         "cves": "CVE-2017-11804",
         "source": "insightvm",
     }
+
+
+def test_backend_disabled_does_not_send_requests(backend_alarm_test_server):
+    client = BackendAlarmClient(_settings(backend_alarm_test_server["url"], backend_enabled=False))
+    payload = {
+        "findings": [
+            {
+                "asset_hostname": "OLT-1",
+                "asset_ip": "192.168.1.100",
+                "asset_id": "282",
+                "vulnerability_id": "windows-hotfix-ms03-007",
+                "vulnerability_title": "Test vuln",
+                "severity": "critical",
+                "source": "insightvm",
+            }
+        ]
+    }
+
+    result = client.send_filtered_findings(payload)
+
+    assert result["enabled"] is False
+    assert result["skipped"] is True
+    assert result["prepared_alarms"] == 1
+    assert result["sent_ok"] == 0
+    assert backend_alarm_test_server["state"].requests == []
 

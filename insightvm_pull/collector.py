@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from datetime import datetime
 from typing import Any
@@ -9,6 +10,8 @@ from insightvm_pull.models import normalize_severity
 
 log = logging.getLogger("insightvm_pull.collector")
 
+MAX_COLLECTOR_WORKERS = 8
+
 
 class InsightVMCollector:
     def __init__(self, client: InsightVMClient) -> None:
@@ -17,7 +20,6 @@ class InsightVMCollector:
     def collect(self, page_size: int, allowed_severities: tuple[str, ...] | None = None) -> dict[str, Any]:
         assets: list[dict[str, Any]] = []
         findings: list[dict[str, Any]] = []
-        vuln_cache: dict[str, dict[str, Any]] = {}
         assets_pages: list[dict[str, Any]] = []
         asset_vulns_raw: dict[str, dict[str, Any]] = {}
         vuln_defs_raw: dict[str, dict[str, Any]] = {}
@@ -28,20 +30,20 @@ class InsightVMCollector:
         vulnerability_detail_requests = 0
 
         assets, assets_pages = self._fetch_assets_with_raw_pages(page_size=page_size)
+        asset_vuln_results = self._fetch_asset_vulnerabilities_for_assets(assets=assets, page_size=page_size)
+        candidate_findings: list[dict[str, Any]] = []
+        needed_vulnerability_ids: list[str] = []
+        seen_needed_vulnerability_ids: set[str] = set()
 
         for asset in assets:
             asset_id = asset.get("id")
             if not asset_id:
                 continue
-            try:
-                vuln_refs, asset_vuln_pages = self._fetch_asset_vulnerabilities_with_raw_pages(
-                    asset_id=asset_id,
-                    page_size=page_size,
-                )
-                asset_vulns_raw[str(asset_id)] = {"pages": asset_vuln_pages}
-            except Exception as exc:
-                log.warning("asset_id=%s vulnerabilities fetch failed: %s", asset_id, exc)
+            result = asset_vuln_results.get(str(asset_id))
+            if not isinstance(result, dict):
                 continue
+            asset_vulns_raw[str(asset_id)] = {"pages": result.get("pages", [])}
+            vuln_refs = result.get("refs", [])
 
             for ref in vuln_refs:
                 if not isinstance(ref, dict):
@@ -57,41 +59,58 @@ class InsightVMCollector:
                     filtered_before_detail_count += 1
                     continue
 
-                if vuln_id not in vuln_cache:
-                    vuln_resp = self.client.get(f"/vulnerabilities/{vuln_id}")
-                    vuln_cache[vuln_id] = vuln_resp
-                    vuln_defs_raw[vuln_id] = vuln_resp
-                    vulnerability_detail_requests += 1
-
-                vdef = vuln_cache[vuln_id]
-                sev = _extract_severity(vdef, ref)
-                if allowed and sev not in allowed:
-                    filtered_after_detail_count += 1
-                    continue
-
-                title = _extract_title(vdef, ref)
-                cvss_score = _extract_cvss(vdef, ref)
-                cves = _extract_cves(vdef, ref)
-                findings.append(
+                candidate_findings.append(
                     {
                         "asset_id": asset_id,
                         "asset_ip": _extract_asset_ip(asset),
                         "asset_hostname": asset.get("hostName") or asset.get("hostname") or asset.get("name"),
                         "vulnerability_id": vuln_id,
-                        "title": title,
-                        "vulnerability_title": title,
-                        "severity": sev,
-                        "cvss": cvss_score,
-                        "cvss_score": cvss_score,
-                        "risk_score": vdef.get("riskScore"),
-                        "cves": cves,
-                        "source": "insightvm",
-                        "estado": 1,
-                        "fechaalarma": _extract_alert_time(ref, vdef),
-                        "raw": vdef,
                         "raw_ref": ref,
                     }
                 )
+                if vuln_id not in seen_needed_vulnerability_ids:
+                    seen_needed_vulnerability_ids.add(vuln_id)
+                    needed_vulnerability_ids.append(vuln_id)
+
+        if needed_vulnerability_ids:
+            vuln_defs_raw = self._fetch_vulnerability_definitions(needed_vulnerability_ids)
+            vulnerability_detail_requests = len(needed_vulnerability_ids)
+
+        for candidate in candidate_findings:
+            vuln_id = candidate["vulnerability_id"]
+            vdef = vuln_defs_raw.get(vuln_id)
+            if not isinstance(vdef, dict):
+                continue
+            ref = candidate["raw_ref"]
+
+            sev = _extract_severity(vdef, ref)
+            if allowed and sev not in allowed:
+                filtered_after_detail_count += 1
+                continue
+
+            title = _extract_title(vdef, ref)
+            cvss_score = _extract_cvss(vdef, ref)
+            cves = _extract_cves(vdef, ref)
+            findings.append(
+                {
+                    "asset_id": candidate["asset_id"],
+                    "asset_ip": candidate["asset_ip"],
+                    "asset_hostname": candidate["asset_hostname"],
+                    "vulnerability_id": vuln_id,
+                    "title": title,
+                    "vulnerability_title": title,
+                    "severity": sev,
+                    "cvss": cvss_score,
+                    "cvss_score": cvss_score,
+                    "risk_score": vdef.get("riskScore"),
+                    "cves": cves,
+                    "source": "insightvm",
+                    "estado": 1,
+                    "fechaalarma": _extract_alert_time(ref, vdef),
+                    "raw": vdef,
+                    "raw_ref": ref,
+                }
+            )
 
         return {
             "assets": assets,
@@ -164,6 +183,59 @@ class InsightVMCollector:
                 break
             page += 1
         return vulnerabilities, pages
+
+    def _fetch_asset_vulnerabilities_for_assets(
+        self,
+        assets: list[dict[str, Any]],
+        page_size: int,
+    ) -> dict[str, dict[str, Any]]:
+        asset_ids = [str(asset.get("id")) for asset in assets if asset.get("id")]
+        if not asset_ids:
+            return {}
+
+        results: dict[str, dict[str, Any]] = {}
+        worker_count = min(MAX_COLLECTOR_WORKERS, len(asset_ids))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(self._fetch_asset_vulnerabilities_worker, asset_id, page_size): asset_id for asset_id in asset_ids
+            }
+            for future in as_completed(futures):
+                asset_id = futures[future]
+                try:
+                    refs, pages = future.result()
+                except Exception as exc:
+                    log.warning("asset_id=%s vulnerabilities fetch failed: %s", asset_id, exc)
+                    continue
+                results[asset_id] = {"refs": refs, "pages": pages}
+        return results
+
+    def _fetch_asset_vulnerabilities_worker(
+        self,
+        asset_id: str,
+        page_size: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        worker_client = InsightVMClient(settings=self.client.settings)
+        worker_collector = InsightVMCollector(client=worker_client)
+        return worker_collector._fetch_asset_vulnerabilities_with_raw_pages(asset_id=asset_id, page_size=page_size)
+
+    def _fetch_vulnerability_definitions(self, vulnerability_ids: list[str]) -> dict[str, dict[str, Any]]:
+        worker_count = min(MAX_COLLECTOR_WORKERS, len(vulnerability_ids))
+        if worker_count < 1:
+            return {}
+
+        vulnerability_definitions: dict[str, dict[str, Any]] = {}
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(self._fetch_vulnerability_definition_worker, vuln_id): vuln_id for vuln_id in vulnerability_ids
+            }
+            for future in as_completed(futures):
+                vuln_id = futures[future]
+                vulnerability_definitions[vuln_id] = future.result()
+        return vulnerability_definitions
+
+    def _fetch_vulnerability_definition_worker(self, vuln_id: str) -> dict[str, Any]:
+        worker_client = InsightVMClient(settings=self.client.settings)
+        return worker_client.get(f"/vulnerabilities/{vuln_id}")
 
 
 def filter_payload_by_severity(payload: dict[str, Any], allowed_severities: tuple[str, ...]) -> dict[str, Any]:

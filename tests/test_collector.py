@@ -97,6 +97,48 @@ def test_collect_reads_all_asset_vulnerability_pages(insightvm_test_server):
     assert [call["query"]["page"][0] for call in insightvm_test_server["state"].asset_vuln_calls] == ["0", "1", "2"]
 
 
+def test_collect_fetches_shared_vulnerability_detail_once_for_multiple_assets(insightvm_test_server):
+    insightvm_test_server["state"].assets_pages = {
+        0: [
+            {"id": "a1", "hostName": "srv-1", "addresses": [{"ip": "10.0.0.1"}]},
+            {"id": "a2", "hostName": "srv-2", "addresses": [{"ip": "10.0.0.2"}]},
+        ],
+        1: [],
+    }
+    insightvm_test_server["state"].asset_vulns = {
+        "a1": [{"id": "v1", "severity": "critical"}],
+        "a2": [{"id": "v1", "severity": "critical"}],
+    }
+    settings = Settings(
+        insightvm_base_url=insightvm_test_server["base_url"],
+        insightvm_user="u",
+        insightvm_password="p",
+        insightvm_timeout=5,
+        insightvm_verify_ssl=False,
+        page_size=10,
+        interval_seconds=3600,
+        max_retries=1,
+        retry_backoff_seconds=0.0,
+        severities=("critical", "high"),
+        log_level="INFO",
+        log_file="logs/integration.log",
+        payload_dir="payloads",
+        backend_enabled=False,
+        backend_url="http://127.0.0.1:9999/txdxsecure/guarda_alarma.php",
+        backend_local="Txdxsecure",
+        backend_alarm_type="1 - Alarma de seguridad",
+        backend_timeout=5,
+        backend_verify_ssl=False,
+    )
+    collector = InsightVMCollector(client=InsightVMClient(settings=settings))
+
+    payload = collector.collect(page_size=10, allowed_severities=("critical", "high"))
+
+    assert payload["meta"]["findings_count"] == 2
+    assert payload["meta"]["vulnerability_detail_requests"] == 1
+    assert insightvm_test_server["state"].vuln_detail_calls == ["v1"]
+
+
 def test_extract_alert_time_prefers_operational_dates_over_published():
     ref = {
         "lastSeen": "2026-05-27T16:10:00Z",

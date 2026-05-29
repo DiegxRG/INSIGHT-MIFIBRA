@@ -55,11 +55,24 @@ class BackendAlarmClient:
         if not isinstance(alarms, list):
             alarms = []
 
+        validation_errors = int(prepared_payload.get("validation_errors", 0))
+        details: list[dict[str, Any]] = list(prepared_payload.get("skipped_findings", []))
+        if not self.settings.backend_enabled:
+            return {
+                "enabled": False,
+                "skipped": True,
+                "total_filtered_findings": int(prepared_payload.get("total_filtered_findings", len(alarms))),
+                "prepared_alarms": len(alarms),
+                "sent_ok": 0,
+                "conflicts": 0,
+                "validation_errors": validation_errors,
+                "backend_errors": 0,
+                "details": details,
+            }
+
         sent_ok = 0
         conflicts = 0
-        validation_errors = int(prepared_payload.get("validation_errors", 0))
         backend_errors = 0
-        details: list[dict[str, Any]] = list(prepared_payload.get("skipped_findings", []))
 
         for alarm in alarms:
             if not isinstance(alarm, dict):
@@ -74,7 +87,8 @@ class BackendAlarmClient:
                 backend_errors += 1
 
         return {
-            "enabled": True,
+            "enabled": self.settings.backend_enabled,
+            "skipped": False,
             "total_filtered_findings": int(prepared_payload.get("total_filtered_findings", len(alarms))),
             "prepared_alarms": len(alarms),
             "sent_ok": sent_ok,
