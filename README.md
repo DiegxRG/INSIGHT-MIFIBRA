@@ -6,19 +6,33 @@ Documentacion funcional detallada: [`docs/INSIGHTVM_INTEGRATION_FLOW.md`](docs/I
 
 ## Inicio rápido (lo principal)
 
-1. Instalar dependencias:
+1. Crear y activar un entorno virtual (Recomendado):
+
+En Windows (PowerShell/CMD):
+```bash
+py -m venv venv
+.\venv\Scripts\activate
+```
+
+En Linux/macOS:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+2. Instalar dependencias:
 
 ```bash
 py -m pip install -r requirements.txt
 ```
 
-2. Ejecutar una sola corrida (snapshot):
+3. Ejecutar una sola corrida (snapshot):
 
 ```bash
 py main.py --env-file .env --once
 ```
 
-3. Ejecutar tests:
+4. Ejecutar tests:
 
 ```bash
 py -m pytest -q
