@@ -17,6 +17,7 @@ def insightvm_test_server():
         asset_vulns = {}
         vuln_defs = {}
         vuln_detail_calls = []
+        asset_vuln_calls = []
 
     state = State()
     state.assets_pages = {
@@ -56,7 +57,14 @@ def insightvm_test_server():
             if path.startswith("/api/3/assets/") and path.endswith("/vulnerabilities"):
                 parts = path.split("/")
                 asset_id = parts[-2]
-                self._json({"resources": state.asset_vulns.get(asset_id, [])})
+                state.asset_vuln_calls.append({"asset_id": asset_id, "query": query})
+                payload = state.asset_vulns.get(asset_id, [])
+                if isinstance(payload, dict):
+                    page = int(query.get("page", ["0"])[0])
+                    resources = payload.get(page, [])
+                else:
+                    resources = payload
+                self._json({"resources": resources})
                 return
 
             if path.startswith("/api/3/vulnerabilities/"):

@@ -34,14 +34,13 @@ class InsightVMCollector:
             if not asset_id:
                 continue
             try:
-                asset_vuln_resp = self.client.get(f"/assets/{asset_id}/vulnerabilities")
-                asset_vulns_raw[str(asset_id)] = asset_vuln_resp
-                vuln_refs = asset_vuln_resp.get("resources", [])
+                vuln_refs, asset_vuln_pages = self._fetch_asset_vulnerabilities_with_raw_pages(
+                    asset_id=asset_id,
+                    page_size=page_size,
+                )
+                asset_vulns_raw[str(asset_id)] = {"pages": asset_vuln_pages}
             except Exception as exc:
                 log.warning("asset_id=%s vulnerabilities fetch failed: %s", asset_id, exc)
-                continue
-
-            if not isinstance(vuln_refs, list):
                 continue
 
             for ref in vuln_refs:
@@ -133,6 +132,39 @@ class InsightVMCollector:
             page += 1
         return assets, pages
 
+    def _fetch_asset_vulnerabilities_with_raw_pages(
+        self,
+        asset_id: Any,
+        page_size: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        vulnerabilities: list[dict[str, Any]] = []
+        pages: list[dict[str, Any]] = []
+        seen_page_signatures: set[tuple[str, ...]] = set()
+        page = 0
+        endpoint = f"/assets/{asset_id}/vulnerabilities"
+        while True:
+            response = self.client.get(endpoint, params={"page": page, "size": page_size})
+            if not isinstance(response, dict):
+                raise RuntimeError(f"Unexpected non-dict response for {endpoint}")
+            resources = response.get("resources")
+            if not isinstance(resources, list):
+                raise RuntimeError(f"Missing 'resources' list in {endpoint} response")
+
+            signature = tuple(_resource_signature(item) for item in resources if isinstance(item, dict))
+            if page > 0 and signature in seen_page_signatures:
+                log.warning("asset_id=%s repeated vulnerability page detected on %s; stopping pagination", asset_id, endpoint)
+                break
+
+            seen_page_signatures.add(signature)
+            pages.append(response)
+            for item in resources:
+                if isinstance(item, dict):
+                    vulnerabilities.append(item)
+            if len(resources) < page_size:
+                break
+            page += 1
+        return vulnerabilities, pages
+
 
 def filter_payload_by_severity(payload: dict[str, Any], allowed_severities: tuple[str, ...]) -> dict[str, Any]:
     findings = payload.get("findings", [])
@@ -221,19 +253,25 @@ def _extract_cves(*records: dict[str, Any]) -> list[str]:
 
 
 def _extract_alert_time(*records: dict[str, Any]) -> str:
+    # Prefer dates tied to the asset occurrence, not vulnerability publication dates.
     for record in records:
         if not isinstance(record, dict):
             continue
         for key in (
-            "date",
-            "discovered",
-            "firstDiscovered",
             "lastFound",
             "lastSeen",
             "mostRecentInstance",
-            "published",
+            "date",
+            "discovered",
+            "firstDiscovered",
         ):
             value = record.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip().replace("T", " ")[:19]
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _resource_signature(item: dict[str, Any]) -> str:
+    vuln_id = item.get("id")
+    severity = item.get("severity")
+    return f"{vuln_id}|{severity}"

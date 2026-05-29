@@ -275,6 +275,31 @@ Campos enriquecidos agregados:
 - `cves`
 - `source`
 
+## Definicion funcional de `fechaalarma`
+
+`fechaalarma` debe representar la fecha operativa de deteccion de la vulnerabilidad sobre el equipo, no la fecha de publicacion global del CVE o de la definicion.
+
+Regla definida para el codigo:
+
+1. `lastFound`
+2. `lastSeen`
+3. `mostRecentInstance`
+4. `date`
+5. `discovered`
+6. `firstDiscovered`
+7. fecha y hora de la corrida si no viene ninguna fecha operativa
+
+Regla explicada:
+
+- `lastFound` o `lastSeen`: ultima vez que InsightVM vio la vulnerabilidad en ese asset.
+- `mostRecentInstance`: ultima ocurrencia reciente disponible si InsightVM usa ese nombre.
+- `firstDiscovered`: primera vez que aparecio la vulnerabilidad en ese equipo.
+- fecha de corrida: fallback tecnico para no dejar el payload sin fecha.
+
+Campo excluido deliberadamente:
+
+- `published` no se usa como `fechaalarma`, porque representa la publicacion del CVE o de la definicion, no la alerta sobre el equipo.
+
 ## Modelo logico recomendado para base de datos
 
 El codigo actual envia un solo JSON enriquecido al endpoint `guarda_alarma.php`. Sin embargo, del lado de base de datos, lo mas ordenado es que el backend lo separe en dos tablas.
@@ -491,3 +516,137 @@ Esto permite:
 Hoy el proyecto filtra temprano usando la severidad que pueda venir en `assets/{asset_id}/vulnerabilities`. Si InsightVM permite filtro directo por query en ese endpoint, la siguiente optimizacion recomendada es mover el filtro al servidor para descargar menos data aun.
 
 Mientras esa capacidad no se confirme, el estado actual ya evita pedir detalle de vulnerabilidades que no pertenecen a `critical` o `high` cuando la severidad viene disponible en la lista por asset.
+
+## Puntos a resolver y mejoras pendientes
+
+## Estado actual de avance
+
+### Resuelto
+
+1. Paginacion de `assets/{asset_id}/vulnerabilities`
+   - el colector ya recorre todas las paginas disponibles;
+   - se agrego proteccion contra paginas repetidas para evitar loops.
+
+2. Definicion funcional de `fechaalarma`
+   - ya se definio y aplico la prioridad operativa;
+   - ahora usa preferentemente `lastFound`, `lastSeen` o `mostRecentInstance`;
+   - ya no usa `published` como fecha de alarma.
+
+### Pendiente
+
+1. Confirmar si `assets/{asset_id}/vulnerabilities` siempre devuelve `severity` en el ambiente real.
+2. Confirmar si InsightVM soporta filtro server-side en ese endpoint.
+3. Definir la regla final de deduplicacion en backend.
+4. Revisar performance del patron N+1 en ambientes grandes.
+5. Aclarar la semantica del resultado `enabled` en el flujo de envio.
+6. Confirmar si `package.json` y `package-lock.json` deben formar parte del repositorio.
+
+### 1. Paginacion de vulnerabilidades por asset
+
+Estado:
+
+- resuelto en codigo; era un punto critico a revisar porque `assets/{asset_id}/vulnerabilities` podia venir paginado.
+
+Riesgo si no se atiende:
+
+- perder vulnerabilidades en produccion cuando un equipo tenga mas resultados que los devueltos en la primera pagina.
+
+Accion recomendada:
+
+- completada: se aseguro lectura paginada en ese endpoint, igual que ya se hace con `assets`.
+
+### 2. Definicion exacta de `fechaalarma`
+
+Estado:
+
+- resuelto en criterio y codigo; hoy prioriza metadata operativa de la ocurrencia del asset.
+
+Riesgo:
+
+- usar una fecha semantica incorrecta, por ejemplo la fecha del CVE en vez de la fecha de deteccion sobre el equipo.
+
+Accion recomendada:
+
+- completada en el lado tecnico: `fechaalarma` representa la ultima deteccion operativa disponible del asset; queda pendiente solo validacion funcional si backend quiere una semantica distinta.
+
+### 3. Semantica del flag `enabled` en el resultado de envio
+
+Estado:
+
+- el scheduler controla si se envia o no, pero la respuesta interna del backend client puede inducir a confusion si se usa por separado.
+
+Riesgo:
+
+- interpretacion incorrecta del estado real del envio en futuras integraciones.
+
+Accion recomendada:
+
+- unificar el significado de `enabled` o documentarlo como estado del cliente y no del ciclo.
+
+### 4. Regla de deduplicacion en backend
+
+Estado:
+
+- el payload ya incluye `asset_id` y `vulnerability_id`, pero no esta cerrada la regla exacta para evitar duplicados entre corridas.
+
+Riesgo:
+
+- insertar multiples veces la misma vulnerabilidad para el mismo equipo.
+
+Accion recomendada:
+
+- definir una clave logica como `source + asset_id + vulnerability_id`, o agregar fecha si el negocio necesita historial temporal.
+
+### 5. Performance por patron N+1
+
+Estado:
+
+- el flujo hace una consulta por asset para listar vulnerabilidades y una consulta adicional por vulnerabilidad filtrada para pedir detalle.
+
+Riesgo:
+
+- tiempos altos en ambientes con muchos equipos y muchas vulnerabilidades.
+
+Accion recomendada:
+
+- evaluar filtros server-side, concurrencia controlada o endpoints agregados si InsightVM los ofrece.
+
+### 6. Doble filtro de severidad
+
+Estado:
+
+- existe filtro temprano en el colector y filtro final defensivo sobre el payload operativo.
+
+Riesgo:
+
+- confusion de mantenimiento si no queda claro por que ambos existen.
+
+Accion recomendada:
+
+- conservar ambos, pero documentar que el primero optimiza trafico y el segundo actua como red de seguridad.
+
+## Dudas tecnicas abiertas
+
+1. `assets/{asset_id}/vulnerabilities` en el ambiente real siempre devuelve `severity`?
+2. Ese endpoint soporta filtro server-side por severidad u otro query util?
+3. Que fecha exacta espera el backend en `fechaalarma`?
+4. El backend persistira una sola tabla enriquecida o separara `alarmas` y `detalle`?
+5. `package.json` y `package-lock.json` forman parte real del repositorio o fueron agregados solo por pruebas/herramientas?
+
+## Orden recomendado de trabajo
+
+1. Confirmar y asegurar paginacion en `assets/{asset_id}/vulnerabilities`.
+2. Definir el origen correcto de `fechaalarma`.
+3. Acordar la estrategia de deduplicacion en backend.
+4. Agregar pruebas de paginacion y del caso donde la severidad solo existe en el detalle.
+5. Revisar performance y posibles optimizaciones adicionales.
+
+## Criterio tecnico actual
+
+El payload enriquecido y el filtrado base ya estan bien encaminados.
+
+Los puntos mas sensibles antes de pasar a una etapa mas productiva son:
+
+1. no perder vulnerabilidades por paginacion,
+2. no usar una `fechaalarma` incorrecta,
+3. no duplicar registros entre corridas.
