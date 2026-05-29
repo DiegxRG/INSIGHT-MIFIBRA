@@ -20,6 +20,9 @@ build/
 dist/
 *.egg-info/
 
+# Node dependencies
+node_modules/
+
 # Virtual environments
 .venv/
 venv/

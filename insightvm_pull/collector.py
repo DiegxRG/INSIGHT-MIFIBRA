@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from insightvm_pull.client import InsightVMClient
@@ -13,13 +14,18 @@ class InsightVMCollector:
     def __init__(self, client: InsightVMClient) -> None:
         self.client = client
 
-    def collect(self, page_size: int) -> dict[str, Any]:
+    def collect(self, page_size: int, allowed_severities: tuple[str, ...] | None = None) -> dict[str, Any]:
         assets: list[dict[str, Any]] = []
         findings: list[dict[str, Any]] = []
         vuln_cache: dict[str, dict[str, Any]] = {}
         assets_pages: list[dict[str, Any]] = []
         asset_vulns_raw: dict[str, dict[str, Any]] = {}
         vuln_defs_raw: dict[str, dict[str, Any]] = {}
+        allowed = set(allowed_severities or ())
+        vulnerability_refs_count = 0
+        filtered_before_detail_count = 0
+        filtered_after_detail_count = 0
+        vulnerability_detail_requests = 0
 
         assets, assets_pages = self._fetch_assets_with_raw_pages(page_size=page_size)
 
@@ -44,25 +50,47 @@ class InsightVMCollector:
                 vuln_id = ref.get("id")
                 if not vuln_id:
                     continue
+                vuln_id = str(vuln_id)
+                vulnerability_refs_count += 1
+
+                ref_severity = _extract_severity(ref)
+                if allowed and ref_severity != "unknown" and ref_severity not in allowed:
+                    filtered_before_detail_count += 1
+                    continue
+
                 if vuln_id not in vuln_cache:
                     vuln_resp = self.client.get(f"/vulnerabilities/{vuln_id}")
                     vuln_cache[vuln_id] = vuln_resp
-                    vuln_defs_raw[str(vuln_id)] = vuln_resp
+                    vuln_defs_raw[vuln_id] = vuln_resp
+                    vulnerability_detail_requests += 1
 
                 vdef = vuln_cache[vuln_id]
-                sev = normalize_severity(vdef.get("severity") or vdef.get("severityScore") or vdef.get("cvss_score"))
+                sev = _extract_severity(vdef, ref)
+                if allowed and sev not in allowed:
+                    filtered_after_detail_count += 1
+                    continue
+
+                title = _extract_title(vdef, ref)
+                cvss_score = _extract_cvss(vdef, ref)
+                cves = _extract_cves(vdef, ref)
                 findings.append(
                     {
                         "asset_id": asset_id,
                         "asset_ip": _extract_asset_ip(asset),
                         "asset_hostname": asset.get("hostName") or asset.get("hostname") or asset.get("name"),
                         "vulnerability_id": vuln_id,
-                        "title": vdef.get("title") or vdef.get("name") or "Vulnerability",
+                        "title": title,
+                        "vulnerability_title": title,
                         "severity": sev,
-                        "cvss": _extract_cvss(vdef),
+                        "cvss": cvss_score,
+                        "cvss_score": cvss_score,
                         "risk_score": vdef.get("riskScore"),
-                        "cves": vdef.get("cves") or [],
+                        "cves": cves,
+                        "source": "insightvm",
+                        "estado": 1,
+                        "fechaalarma": _extract_alert_time(ref, vdef),
                         "raw": vdef,
+                        "raw_ref": ref,
                     }
                 )
 
@@ -72,6 +100,11 @@ class InsightVMCollector:
             "meta": {
                 "assets_count": len(assets),
                 "findings_count": len(findings),
+                "allowed_severities": list(allowed_severities or ()),
+                "vulnerability_refs_count": vulnerability_refs_count,
+                "vulnerability_detail_requests": vulnerability_detail_requests,
+                "filtered_before_detail_count": filtered_before_detail_count,
+                "filtered_after_detail_count": filtered_after_detail_count,
             },
             "raw_api": {
                 "assets_pages": assets_pages,
@@ -106,11 +139,15 @@ def filter_payload_by_severity(payload: dict[str, Any], allowed_severities: tupl
     if not isinstance(findings, list):
         findings = []
     filtered_findings = [f for f in findings if isinstance(f, dict) and f.get("severity") in allowed_severities]
+    meta = payload.get("meta", {})
+    if not isinstance(meta, dict):
+        meta = {}
     return {
         "assets": payload.get("assets", []),
         "findings": filtered_findings,
         "meta": {
-            "assets_count": payload.get("meta", {}).get("assets_count", 0),
+            **meta,
+            "assets_count": meta.get("assets_count", 0),
             "findings_count": len(filtered_findings),
             "allowed_severities": list(allowed_severities),
         },
@@ -132,16 +169,71 @@ def _extract_asset_ip(asset: dict[str, Any]) -> str | None:
     return None
 
 
-def _extract_cvss(vdef: dict[str, Any]) -> float | None:
-    value = vdef.get("cvss_score")
-    if isinstance(value, (int, float)):
-        return float(value)
-    cvss = vdef.get("cvss")
-    if isinstance(cvss, dict):
-        for version in ("v3", "v2"):
-            sub = cvss.get(version)
-            if isinstance(sub, dict) and isinstance(sub.get("score"), (int, float)):
-                return float(sub["score"])
-    if isinstance(vdef.get("severityScore"), (int, float)):
-        return float(vdef["severityScore"])
+def _extract_severity(*records: dict[str, Any]) -> str:
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        severity = normalize_severity(record.get("severity") or record.get("severityScore") or record.get("cvss_score"))
+        if severity != "unknown":
+            return severity
+    return "unknown"
+
+
+def _extract_title(*records: dict[str, Any]) -> str:
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        for key in ("title", "name"):
+            value = record.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return "Vulnerability"
+
+
+def _extract_cvss(*records: dict[str, Any]) -> float | None:
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        value = record.get("cvss_score")
+        if isinstance(value, (int, float)):
+            return float(value)
+        cvss = record.get("cvss")
+        if isinstance(cvss, dict):
+            for version in ("v3", "v2"):
+                sub = cvss.get(version)
+                if isinstance(sub, dict) and isinstance(sub.get("score"), (int, float)):
+                    return float(sub["score"])
+        if isinstance(record.get("severityScore"), (int, float)):
+            return float(record["severityScore"])
     return None
+
+
+def _extract_cves(*records: dict[str, Any]) -> list[str]:
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        raw_cves = record.get("cves")
+        if isinstance(raw_cves, list):
+            return [str(item).strip() for item in raw_cves if str(item).strip()]
+        if isinstance(raw_cves, str) and raw_cves.strip():
+            return [item.strip() for item in raw_cves.split(",") if item.strip()]
+    return []
+
+
+def _extract_alert_time(*records: dict[str, Any]) -> str:
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        for key in (
+            "date",
+            "discovered",
+            "firstDiscovered",
+            "lastFound",
+            "lastSeen",
+            "mostRecentInstance",
+            "published",
+        ):
+            value = record.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().replace("T", " ")[:19]
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")

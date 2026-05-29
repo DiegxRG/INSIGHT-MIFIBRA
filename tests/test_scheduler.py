@@ -37,18 +37,22 @@ def test_run_service_retries_and_persists_real_server(tmp_path: Path, insightvm_
     run_service(settings=settings, collector=collector, once=True)
 
     payload_files = sorted((tmp_path / "payloads").glob("*.json"))
-    assert len(payload_files) == 3
+    assert len(payload_files) == 4
     raw_api_file = [p for p in payload_files if p.name.startswith("raw_api_")][0]
     filtered_file = [p for p in payload_files if p.name.startswith("filtered_")][0]
+    prepared_file = [p for p in payload_files if p.name.startswith("prepared_backend_")][0]
     meta_file = [p for p in payload_files if p.name.startswith("run_")][0]
 
     raw_api_data = json.loads(raw_api_file.read_text(encoding="utf-8"))
     filtered_data = json.loads(filtered_file.read_text(encoding="utf-8"))
+    prepared_data = json.loads(prepared_file.read_text(encoding="utf-8"))
     meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
 
     assert "assets_pages" in raw_api_data
     assert "asset_vulnerabilities" in raw_api_data
     assert "vulnerability_definitions" in raw_api_data
     assert filtered_data["meta"]["findings_count"] == 1
+    assert prepared_data["prepared_alarms_count"] == 1
+    assert prepared_data["alarms"][0]["severity"] == "Critical"
     assert meta_data["success"] is True
     assert server["state"].assets_calls >= 2

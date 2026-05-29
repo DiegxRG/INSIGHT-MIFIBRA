@@ -16,13 +16,14 @@ def insightvm_test_server():
         assets_pages = {}
         asset_vulns = {}
         vuln_defs = {}
+        vuln_detail_calls = []
 
     state = State()
     state.assets_pages = {
         0: [{"id": "a1", "hostName": "srv-1", "addresses": [{"ip": "10.0.0.1"}]}],
         1: [],
     }
-    state.asset_vulns = {"a1": [{"id": "v1"}, {"id": "v2"}]}
+    state.asset_vulns = {"a1": [{"id": "v1", "severity": "critical"}, {"id": "v2", "severity": "medium"}]}
     state.vuln_defs = {
         "v1": {"id": "v1", "title": "Critical vuln", "severity": "critical", "riskScore": 900},
         "v2": {"id": "v2", "title": "Medium vuln", "severity": "medium", "riskScore": 300},
@@ -60,6 +61,7 @@ def insightvm_test_server():
 
             if path.startswith("/api/3/vulnerabilities/"):
                 vuln_id = path.split("/")[-1]
+                state.vuln_detail_calls.append(vuln_id)
                 payload = state.vuln_defs.get(vuln_id)
                 if payload is None:
                     self._json({"error": "not found"}, status=404)

@@ -32,12 +32,29 @@ def test_backend_send_success(backend_alarm_test_server):
     client = BackendAlarmClient(_settings(backend_alarm_test_server["url"]))
     payload = {
         "findings": [
-            {"asset_hostname": "OLT-1", "asset_ip": "192.168.1.100", "severity": "critical", "title": "Test vuln"}
+            {
+                "asset_hostname": "OLT-1",
+                "asset_ip": "192.168.1.100",
+                "asset_id": "282",
+                "vulnerability_id": "windows-hotfix-ms03-007",
+                "vulnerability_title": "Test vuln",
+                "severity": "critical",
+                "cvss_score": 9.8,
+                "cves": ["CVE-2017-11804"],
+                "source": "insightvm",
+            }
         ]
     }
     result = client.send_filtered_findings(payload)
     assert result["sent_ok"] == 1
     assert result["backend_errors"] == 0
+    sent_payload = backend_alarm_test_server["state"].requests[0]
+    assert sent_payload["asset_id"] == "282"
+    assert sent_payload["vulnerability_id"] == "windows-hotfix-ms03-007"
+    assert sent_payload["severity"] == "Critical"
+    assert sent_payload["cvss_score"] == 9.8
+    assert sent_payload["cves"] == "CVE-2017-11804"
+    assert sent_payload["source"] == "insightvm"
 
 
 def test_backend_send_conflict(backend_alarm_test_server):
@@ -59,4 +76,44 @@ def test_backend_missing_required_fields(backend_alarm_test_server):
     result = client.send_filtered_findings(payload)
     assert result["validation_errors"] == 1
     assert result["sent_ok"] == 0
+
+
+def test_backend_prepare_filtered_findings_includes_extended_fields(backend_alarm_test_server):
+    client = BackendAlarmClient(_settings(backend_alarm_test_server["url"]))
+    payload = {
+        "findings": [
+            {
+                "asset_hostname": "OLT-PRUEBA-01",
+                "asset_ip": "10.0.0.100",
+                "asset_id": "282",
+                "vulnerability_id": "windows-hotfix-ms03-007",
+                "vulnerability_title": "Microsoft CVE-2017-11804",
+                "severity": "critical",
+                "cvss_score": 9.8,
+                "cves": ["CVE-2017-11804"],
+                "source": "insightvm",
+                "fechaalarma": "2026-05-27 16:10:00",
+            }
+        ]
+    }
+
+    prepared = client.prepare_filtered_findings(payload)
+
+    assert prepared["prepared_alarms_count"] == 1
+    alarm = prepared["alarms"][0]
+    assert alarm == {
+        "servidor": "OLT-PRUEBA-01",
+        "ip": "10.0.0.100",
+        "TipoAlarma": "1 - Alarma de seguridad [Critical] - Microsoft CVE-2017-11804",
+        "Local": "Txdxsecure",
+        "fechaalarma": "2026-05-27 16:10:00",
+        "estado": 1,
+        "asset_id": "282",
+        "vulnerability_id": "windows-hotfix-ms03-007",
+        "vulnerability_title": "Microsoft CVE-2017-11804",
+        "severity": "Critical",
+        "cvss_score": 9.8,
+        "cves": "CVE-2017-11804",
+        "source": "insightvm",
+    }
 

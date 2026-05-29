@@ -2,6 +2,8 @@
 
 Integración para descargar alertas de InsightVM por estrategia `pull`, con snapshot por ejecución, filtros de severidad, reintentos y logs.
 
+Documentacion funcional detallada: [`docs/INSIGHTVM_INTEGRATION_FLOW.md`](docs/INSIGHTVM_INTEGRATION_FLOW.md)
+
 ## Inicio rápido (lo principal)
 
 1. Instalar dependencias:
@@ -31,14 +33,17 @@ py -m pytest -q
 - Payloads (en `payloads/`):
   - `raw_api_YYYYmmdd_HHMMSS.json` -> data cruda 1:1 desde API InsightVM.
   - `filtered_YYYYmmdd_HHMMSS.json` -> data filtrada por severidad (por defecto `critical,high`).
+  - `prepared_backend_YYYYmmdd_HHMMSS.json` -> payload ya normalizado al formato que recibiría backend, pero sin enviarlo si `BACKEND_ENABLED=false`.
   - `run_YYYYmmdd_HHMMSS.meta.json` -> metadatos del ciclo (éxito/error, tiempos, conteos).
 
 ## Flujo funcional
 
 1. Baja data desde InsightVM (`/assets`, `/assets/{id}/vulnerabilities`, `/vulnerabilities/{id}`).
-2. Guarda crudo 1:1 en `raw_api`.
-3. Aplica filtro de severidad y guarda resultado operativo en `filtered`.
-4. Si `BACKEND_ENABLED=true`, adapta la data filtrada al formato requerido y la envía al backend (`guarda_alarma.php`).
+2. Si la severidad ya viene en la lista de vulnerabilidades por asset, descarta temprano lo que no coincide para evitar pedir detalles innecesarios.
+3. Guarda crudo 1:1 en `raw_api`.
+4. Aplica filtro de severidad y guarda resultado operativo en `filtered`.
+5. Prepara el payload enriquecido con `asset_id`, `vulnerability_id`, `vulnerability_title`, `severity`, `cvss_score`, `cves`, `source` y lo guarda en `prepared_backend`.
+6. Si `BACKEND_ENABLED=true`, envía ese payload preparado al backend (`guarda_alarma.php`).
    Solo se envían hallazgos de severidades configuradas en `ALERT_SEVERITIES` (por defecto: `critical,high`).
 
 ## Ejecución continua
@@ -87,6 +92,14 @@ La integración envía JSON por `POST` con estos campos:
 - `TipoAlarma`
 - `Local`
 - `fechaalarma`
+- `estado`
+- `asset_id`
+- `vulnerability_id`
+- `vulnerability_title`
+- `severity`
+- `cvss_score`
+- `cves`
+- `source`
 
 Respuestas que maneja:
 - Éxito: `{"success": true}`

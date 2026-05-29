@@ -16,16 +16,14 @@ class BackendAlarmClient:
         self.settings = settings
         self.session = requests.Session()
 
-    def send_filtered_findings(self, filtered_payload: dict[str, Any]) -> dict[str, Any]:
+    def prepare_filtered_findings(self, filtered_payload: dict[str, Any]) -> dict[str, Any]:
         findings = filtered_payload.get("findings", [])
         if not isinstance(findings, list):
             findings = []
 
-        sent_ok = 0
-        conflicts = 0
+        alarms: list[dict[str, Any]] = []
+        skipped_findings: list[dict[str, Any]] = []
         validation_errors = 0
-        backend_errors = 0
-        details: list[dict[str, Any]] = []
 
         for finding in findings:
             if not isinstance(finding, dict):
@@ -33,9 +31,39 @@ class BackendAlarmClient:
             alarm = self._build_alarm_payload(finding)
             if alarm is None:
                 validation_errors += 1
-                details.append({"success": False, "message": "Missing required fields: servidor/ip", "finding": finding})
+                skipped_findings.append(
+                    {"success": False, "message": "Missing required fields: servidor/ip", "finding": finding}
+                )
                 continue
+            alarms.append(alarm)
 
+        return {
+            "enabled": self.settings.backend_enabled,
+            "total_filtered_findings": len(findings),
+            "prepared_alarms_count": len(alarms),
+            "validation_errors": validation_errors,
+            "alarms": alarms,
+            "skipped_findings": skipped_findings,
+        }
+
+    def send_filtered_findings(self, filtered_payload: dict[str, Any]) -> dict[str, Any]:
+        prepared_payload = self.prepare_filtered_findings(filtered_payload)
+        return self.send_prepared_alarms(prepared_payload)
+
+    def send_prepared_alarms(self, prepared_payload: dict[str, Any]) -> dict[str, Any]:
+        alarms = prepared_payload.get("alarms", [])
+        if not isinstance(alarms, list):
+            alarms = []
+
+        sent_ok = 0
+        conflicts = 0
+        validation_errors = int(prepared_payload.get("validation_errors", 0))
+        backend_errors = 0
+        details: list[dict[str, Any]] = list(prepared_payload.get("skipped_findings", []))
+
+        for alarm in alarms:
+            if not isinstance(alarm, dict):
+                continue
             result = self._post_alarm(alarm)
             details.append(result)
             if result.get("success") is True:
@@ -47,7 +75,8 @@ class BackendAlarmClient:
 
         return {
             "enabled": True,
-            "total_filtered_findings": len(findings),
+            "total_filtered_findings": int(prepared_payload.get("total_filtered_findings", len(alarms))),
+            "prepared_alarms": len(alarms),
             "sent_ok": sent_ok,
             "conflicts": conflicts,
             "validation_errors": validation_errors,
@@ -64,15 +93,33 @@ class BackendAlarmClient:
             return None
 
         sev = str(finding.get("severity") or "").lower()
-        title = str(finding.get("title") or "Alarma de seguridad")
-        tipo = f"{self.settings.backend_alarm_type} [{sev}] - {title}"
-        fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        title = str(finding.get("vulnerability_title") or finding.get("title") or "Alarma de seguridad").strip()
+        tipo = f"{self.settings.backend_alarm_type} [{_display_severity(sev)}] - {title}"
+        fecha = str(finding.get("fechaalarma") or "").strip() or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cves = finding.get("cves")
+        if isinstance(cves, list):
+            cves = ", ".join(str(item).strip() for item in cves if str(item).strip())
+        elif cves is None:
+            cves = ""
+
+        cvss_score = finding.get("cvss_score")
+        if cvss_score is None:
+            cvss_score = finding.get("cvss")
+
         return {
             "servidor": servidor,
             "ip": ip,
             "TipoAlarma": tipo,
             "Local": self.settings.backend_local,
             "fechaalarma": fecha,
+            "estado": _safe_int(finding.get("estado"), 1),
+            "asset_id": str(finding.get("asset_id") or "").strip(),
+            "vulnerability_id": str(finding.get("vulnerability_id") or "").strip(),
+            "vulnerability_title": title,
+            "severity": _display_severity(sev),
+            "cvss_score": cvss_score,
+            "cves": cves,
+            "source": str(finding.get("source") or "insightvm").strip() or "insightvm",
         }
 
     def _post_alarm(self, alarm_payload: dict[str, Any]) -> dict[str, Any]:
@@ -99,4 +146,23 @@ class BackendAlarmClient:
         data["http_status"] = response.status_code
         data["alarm_payload"] = alarm_payload
         return data
+
+
+def _display_severity(value: str) -> str:
+    mapping = {
+        "critical": "Critical",
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low",
+        "info": "Info",
+        "unknown": "Unknown",
+    }
+    return mapping.get(value, value.title() if value else "Unknown")
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
