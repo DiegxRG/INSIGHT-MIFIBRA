@@ -27,6 +27,28 @@ Actualmente el codigo ya implementa lo siguiente:
 
 En otras palabras: el proyecto ya esta preparado para bajar la data, filtrarla y dejar el envio listo. Para pruebas controladas se recomienda mantener `BACKEND_ENABLED=false`.
 
+## Avances recientes
+
+En la revision mas reciente del flujo y de evidencia real de InsightVM se cerraron estos ajustes:
+
+1. `fechaalarma` ya no depende de `published` ni de una fecha generica de ejecucion cuando existe una fecha operativa real en la ocurrencia del asset.
+2. Se priorizo `since` dentro de la metadata operativa de `assets/{asset_id}/vulnerabilities` para representar la fecha del hallazgo sobre el equipo.
+3. Se agrego `insightvm_status` al `finding` interno y al payload final preparado para backend.
+4. El flujo operativo excluye hallazgos con `status != vulnerable` cuando InsightVM devuelve explicitamente ese estado.
+5. El campo `servidor` mantiene preferencia por `hostName`, `hostname` o `name`, y usa la IP como fallback cuando el asset no trae nombre util.
+6. `prepared_backend_*.json` queda definido como el artefacto final de verdad para backend: contiene exactamente la lista `alarms` con cada payload listo para `POST`.
+
+## Fase actual
+
+La integracion se encuentra en fase de validacion del payload final pre-backend.
+
+Esto significa:
+
+1. la bajada desde InsightVM ya esta funcional;
+2. el filtrado principal ya esta funcional;
+3. el payload final ya se arma y se persiste en `prepared_backend_*.json`;
+4. el siguiente objetivo es alinear ese contrato final con backend y despues habilitar envio real controlado.
+
 ## Flujo funcional implementado
 
 El flujo real del sistema es este:
@@ -183,7 +205,7 @@ Cada `finding` interno queda aproximadamente asi:
   "risk_score": 900,
   "cves": ["CVE-2017-11804"],
   "source": "insightvm",
-  "estado": 1,
+  "insightvm_status": "vulnerable",
   "fechaalarma": "2026-05-27 16:10:00"
 }
 ```
@@ -224,7 +246,7 @@ La carpeta `payloads/` guarda cuatro salidas por ejecucion:
    Contiene hallazgos ya filtrados por severidad.
 
 3. `prepared_backend_YYYYmmdd_HHMMSS.json`
-   Contiene el JSON final listo para el backend.
+   Contiene el artefacto final listo para backend. Incluye la lista `alarms` con cada payload exacto que se enviaria por `POST`.
 
 4. `run_YYYYmmdd_HHMMSS.meta.json`
    Contiene metadatos de la corrida:
@@ -245,14 +267,14 @@ El payload actual que prepara el codigo para cada hallazgo es este:
   "TipoAlarma": "1 - Alarma de seguridad [Critical] - Microsoft CVE-2017-11804: Scripting Engine Memory Corruption Vulnerability",
   "Local": "Txdxsecure",
   "fechaalarma": "2026-05-27 16:10:00",
-  "estado": 1,
   "asset_id": "282",
   "vulnerability_id": "windows-hotfix-ms03-007",
   "vulnerability_title": "Microsoft CVE-2017-11804: Scripting Engine Memory Corruption Vulnerability",
   "severity": "Critical",
   "cvss_score": 9.8,
   "cves": "CVE-2017-11804",
-  "source": "insightvm"
+  "source": "insightvm",
+  "insightvm_status": "vulnerable"
 }
 ```
 
@@ -266,7 +288,6 @@ Campos base originalmente requeridos por backend:
 
 Campos enriquecidos agregados:
 
-- `estado`
 - `asset_id`
 - `vulnerability_id`
 - `vulnerability_title`
@@ -274,6 +295,40 @@ Campos enriquecidos agregados:
 - `cvss_score`
 - `cves`
 - `source`
+- `insightvm_status`
+
+## Estructura de `prepared_backend_*.json`
+
+El archivo `prepared_backend_*.json` no guarda solo un hallazgo suelto. Guarda el resultado final de preparacion para backend, incluyendo la lista exacta de payloads listos para enviar:
+
+```json
+{
+  "enabled": false,
+  "total_filtered_findings": 1,
+  "prepared_alarms_count": 1,
+  "validation_errors": 0,
+  "alarms": [
+    {
+      "servidor": "OLT-PRUEBA-01",
+      "ip": "10.0.0.100",
+      "TipoAlarma": "1 - Alarma de seguridad [Critical] - Microsoft CVE-2017-11804: Scripting Engine Memory Corruption Vulnerability",
+      "Local": "Txdxsecure",
+      "fechaalarma": "2026-03-20 20:15:55",
+      "asset_id": "282",
+      "vulnerability_id": "windows-hotfix-ms03-007",
+      "vulnerability_title": "Microsoft CVE-2017-11804: Scripting Engine Memory Corruption Vulnerability",
+      "severity": "Critical",
+      "cvss_score": 9.8,
+      "cves": "CVE-2017-11804",
+      "source": "insightvm",
+      "insightvm_status": "vulnerable"
+    }
+  ],
+  "skipped_findings": []
+}
+```
+
+La clave `alarms` es la fuente de verdad del payload final que se enviaria al backend. Si esa lista esta correcta, el paso de envio queda reducido a hacer `POST` de cada objeto de `alarms`.
 
 ## Definicion funcional de `fechaalarma`
 
@@ -284,15 +339,17 @@ Regla definida para el codigo:
 1. `lastFound`
 2. `lastSeen`
 3. `mostRecentInstance`
-4. `date`
-5. `discovered`
-6. `firstDiscovered`
-7. fecha y hora de la corrida si no viene ninguna fecha operativa
+4. `since`
+5. `date`
+6. `discovered`
+7. `firstDiscovered`
+8. fecha y hora de la corrida si no viene ninguna fecha operativa
 
 Regla explicada:
 
 - `lastFound` o `lastSeen`: ultima vez que InsightVM vio la vulnerabilidad en ese asset.
 - `mostRecentInstance`: ultima ocurrencia reciente disponible si InsightVM usa ese nombre.
+- `since`: fecha operativa asociada a la ocurrencia de la vulnerabilidad en el asset cuando InsightVM la expone en `assets/{asset_id}/vulnerabilities`.
 - `firstDiscovered`: primera vez que aparecio la vulnerabilidad en ese equipo.
 - fecha de corrida: fallback tecnico para no dejar el payload sin fecha.
 
@@ -304,13 +361,25 @@ Campo excluido deliberadamente:
 
 El codigo actual envia un solo JSON enriquecido al endpoint `guarda_alarma.php`. Sin embargo, del lado de base de datos, lo mas ordenado es que el backend lo separe en dos tablas.
 
+Decision funcional actual para backend:
+
+1. la tabla `alarmas` ya queda fijada con los 5 campos base historicos;
+2. la tabla `alarma_vulnerabilidad_detalle` recibe los campos enriquecidos tecnicos del hallazgo;
+3. el payload final que prepara esta integracion sigue siendo un solo JSON enriquecido por hallazgo, pero el backend debe partirlo en dos inserciones.
+
 ### Tabla 1: `alarmas`
 
 Finalidad:
 
 - guardar la cabecera operativa del evento.
 
-Campos sugeridos:
+Definicion acordada:
+
+- esta tabla se considera fija y estable;
+- conserva solo los campos base historicamente definidos por backend;
+- no debe absorber la riqueza tecnica de la vulnerabilidad.
+
+Campos fijos:
 
 - `id` (PK interna)
 - `servidor`
@@ -318,8 +387,11 @@ Campos sugeridos:
 - `TipoAlarma`
 - `Local`
 - `fechaalarma`
-- `estado`
-- `source`
+
+Regla recomendada para esta tabla:
+
+- `TipoAlarma` queda como valor base operativo, por ejemplo `1 - Alarma de seguridad`;
+- la severidad, el titulo tecnico y el resto del contexto enriquecido ya no necesitan vivir en esta tabla porque quedaran en la tabla detalle.
 
 Ejemplo logico de fila:
 
@@ -328,11 +400,9 @@ Ejemplo logico de fila:
   "id": 150,
   "servidor": "OLT-PRUEBA-01",
   "ip": "10.0.0.100",
-  "TipoAlarma": "1 - Alarma de seguridad [Critical] - Microsoft CVE-2017-11804: Scripting Engine Memory Corruption Vulnerability",
+  "TipoAlarma": "1 - Alarma de seguridad",
   "Local": "Txdxsecure",
-  "fechaalarma": "2026-05-27 16:10:00",
-  "estado": 1,
-  "source": "insightvm"
+  "fechaalarma": "2026-05-27 16:10:00"
 }
 ```
 
@@ -356,6 +426,8 @@ Campos sugeridos:
 - `severity`
 - `cvss_score`
 - `cves`
+- `source`
+- `insightvm_status`
 
 Ejemplo logico de fila:
 
@@ -368,7 +440,9 @@ Ejemplo logico de fila:
   "vulnerability_title": "Microsoft CVE-2017-11804: Scripting Engine Memory Corruption Vulnerability",
   "severity": "Critical",
   "cvss_score": 9.8,
-  "cves": "CVE-2017-11804"
+  "cves": "CVE-2017-11804",
+  "source": "insightvm",
+  "insightvm_status": "vulnerable"
 }
 ```
 
@@ -382,11 +456,9 @@ Si el backend decide partir el JSON en dos inserciones, el mapeo recomendado ser
 {
   "servidor": "OLT-PRUEBA-01",
   "ip": "10.0.0.100",
-  "TipoAlarma": "1 - Alarma de seguridad [Critical] - Microsoft CVE-2017-11804: Scripting Engine Memory Corruption Vulnerability",
+  "TipoAlarma": "1 - Alarma de seguridad",
   "Local": "Txdxsecure",
-  "fechaalarma": "2026-05-27 16:10:00",
-  "estado": 1,
-  "source": "insightvm"
+  "fechaalarma": "2026-05-27 16:10:00"
 }
 ```
 
@@ -399,9 +471,26 @@ Si el backend decide partir el JSON en dos inserciones, el mapeo recomendado ser
   "vulnerability_title": "Microsoft CVE-2017-11804: Scripting Engine Memory Corruption Vulnerability",
   "severity": "Critical",
   "cvss_score": 9.8,
-  "cves": "CVE-2017-11804"
+  "cves": "CVE-2017-11804",
+  "source": "insightvm",
+  "insightvm_status": "vulnerable"
 }
 ```
+
+## Contrato recomendado entre integracion y backend
+
+La recomendacion actual queda asi:
+
+1. La integracion prepara un solo payload enriquecido por hallazgo en `prepared_backend_*.json`.
+2. El backend toma cada objeto de `alarms` y lo parte internamente en dos inserciones.
+3. La tabla `alarmas` solo usa:
+   - `servidor`
+   - `ip`
+   - `TipoAlarma`
+   - `Local`
+   - `fechaalarma`
+4. La tabla `alarma_vulnerabilidad_detalle` usa el resto del contexto tecnico del mismo payload.
+5. `insightvm_status` debe quedar persistido en detalle para distinguir hallazgos operativos `vulnerable` de cualquier otro estado que el producto pudiera devolver en el futuro.
 
 Nota importante:
 
@@ -529,7 +618,7 @@ Mientras esa capacidad no se confirme, el estado actual ya evita pedir detalle d
 
 2. Definicion funcional de `fechaalarma`
    - ya se definio y aplico la prioridad operativa;
-   - ahora usa preferentemente `lastFound`, `lastSeen` o `mostRecentInstance`;
+   - ahora usa preferentemente `lastFound`, `lastSeen`, `mostRecentInstance` o `since`;
    - ya no usa `published` como fecha de alarma.
 
 3. Semantica del flag `enabled` en el cliente de backend
@@ -544,12 +633,22 @@ Mientras esa capacidad no se confirme, el estado actual ya evita pedir detalle d
    - el colector ahora ejecuta en paralelo controlado la consulta de vulnerabilidades por asset y la carga de detalles unicos por `vulnerability_id`;
    - se mantiene el mismo formato funcional, pero con menor latencia total en corridas con muchos assets o hallazgos.
 
+6. Contrato final del payload preparado para backend
+   - el artefacto `prepared_backend_*.json` ya queda definido como salida final de preparacion;
+   - la lista `alarms` contiene exactamente cada JSON listo para envio;
+   - el payload final ya incluye `insightvm_status` y excluye `estado`.
+
+7. Filtro por estado operativo del hallazgo
+   - cuando InsightVM devuelve `status`, el flujo conserva solo hallazgos `vulnerable` para el payload final operativo;
+   - los hallazgos `invulnerable` quedan fuera del payload final de alarmas activas.
+
 ### Pendiente
 
 1. Confirmar si `assets/{asset_id}/vulnerabilities` siempre devuelve `severity` en el ambiente real.
 2. Confirmar si InsightVM soporta filtro server-side en ese endpoint.
 3. Definir la regla final de deduplicacion en backend.
 4. Validar en ambiente real si la mitigacion aplicada es suficiente o si todavia se requiere otra optimizacion de performance.
+5. Alinear con backend la estructura final de tablas y el contrato exacto de `prepared_backend_*.json`.
 
 ### 1. Paginacion de vulnerabilidades por asset
 
@@ -671,9 +770,15 @@ Los puntos mas sensibles antes de pasar a una etapa mas productiva son:
 
 En el estado actual, el punto 3 queda explicitamente delegado al backend si se decide operar con snapshots horarios sin deduplicacion local.
 
+El foco inmediato ya no es descubrir nuevos campos base de InsightVM sino consolidar el payload final correcto y dejar trazabilidad clara entre:
+
+1. `raw_api_*.json`,
+2. `filtered_*.json`,
+3. `prepared_backend_*.json`.
+
 ## Estado para pruebas
 
-La integracion se considera lista para prueba controlada con ambiente real de InsightVM.
+La integracion se considera lista para prueba controlada con ambiente real de InsightVM y para validacion final del contrato con backend.
 
 Alcance disponible actualmente:
 
@@ -685,6 +790,8 @@ Alcance disponible actualmente:
 6. Persistencia local de evidencia en `raw_api`, `filtered` y `prepared_backend`.
 7. Respeto de `BACKEND_ENABLED=false` para evitar envio real durante validaciones.
 8. Mitigacion de latencia del patron N+1 mediante concurrencia controlada.
+9. Inclusión de `insightvm_status` en el payload final preparado.
+10. Uso de `since` como `fechaalarma` operativa cuando InsightVM expone ese campo.
 
 Criterio de integracion actual:
 
@@ -697,8 +804,10 @@ Pendientes no bloqueantes para la prueba:
 2. Confirmar si InsightVM soporta filtro server-side.
 3. Definir estrategia de deduplicacion del lado backend.
 4. Validar tiempos reales de ejecucion con volumen productivo.
+5. Confirmar con backend la estructura final de las 2 tablas y el contrato de insercion.
 
 Conclusion:
 
-- el desarrollo actual queda listo para prueba tecnica/integrada;
+- el desarrollo actual queda listo para prueba tecnica/integrada y validacion del payload final preparado;
+- la fase actual es validacion del contrato final con backend a partir de `prepared_backend_*.json`;
 - la habilitacion productiva final depende de validar el comportamiento real de InsightVM y del backend receptor.

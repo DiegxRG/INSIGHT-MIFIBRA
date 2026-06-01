@@ -120,13 +120,14 @@ class BackendAlarmClient:
         if cvss_score is None:
             cvss_score = finding.get("cvss")
 
+        insightvm_status = str(finding.get("insightvm_status") or "").strip().lower()
+
         return {
             "servidor": servidor,
             "ip": ip,
             "TipoAlarma": tipo,
             "Local": self.settings.backend_local,
             "fechaalarma": fecha,
-            "estado": _safe_int(finding.get("estado"), 1),
             "asset_id": str(finding.get("asset_id") or "").strip(),
             "vulnerability_id": str(finding.get("vulnerability_id") or "").strip(),
             "vulnerability_title": title,
@@ -134,6 +135,7 @@ class BackendAlarmClient:
             "cvss_score": cvss_score,
             "cves": cves,
             "source": str(finding.get("source") or "insightvm").strip() or "insightvm",
+            "insightvm_status": insightvm_status,
         }
 
     def _post_alarm(self, alarm_payload: dict[str, Any]) -> dict[str, Any]:
@@ -172,11 +174,4 @@ def _display_severity(value: str) -> str:
         "unknown": "Unknown",
     }
     return mapping.get(value, value.title() if value else "Unknown")
-
-
-def _safe_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 

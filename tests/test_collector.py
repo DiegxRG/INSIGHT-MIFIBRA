@@ -153,6 +153,16 @@ def test_extract_alert_time_prefers_operational_dates_over_published():
     assert alert_time == "2026-05-27 16:10:00"
 
 
+def test_extract_alert_time_uses_since_when_present():
+    ref = {
+        "since": "2026-03-20T20:15:55.872Z",
+    }
+
+    alert_time = _extract_alert_time(ref)
+
+    assert alert_time == "2026-03-20 20:15:55"
+
+
 def test_extract_alert_time_falls_back_to_first_discovered_then_now():
     ref = {
         "firstDiscovered": "2026-05-10T08:00:00Z",
@@ -164,4 +174,54 @@ def test_extract_alert_time_falls_back_to_first_discovered_then_now():
     alert_time = _extract_alert_time(ref, vdef)
 
     assert alert_time == "2026-05-10 08:00:00"
+
+
+def test_collect_excludes_non_vulnerable_refs_and_keeps_status(insightvm_test_server):
+    insightvm_test_server["state"].assets_pages = {
+        0: [{"id": "a1", "hostName": "srv-1", "addresses": [{"ip": "10.0.0.1"}]}],
+        1: [],
+    }
+    insightvm_test_server["state"].asset_vulns = {
+        "a1": [
+            {"id": "v1", "status": "vulnerable"},
+            {"id": "v2", "status": "invulnerable"},
+        ]
+    }
+    insightvm_test_server["state"].vuln_defs["v2"] = {
+        "id": "v2",
+        "title": "Filtered vuln",
+        "severity": "critical",
+        "riskScore": 900,
+    }
+
+    settings = Settings(
+        insightvm_base_url=insightvm_test_server["base_url"],
+        insightvm_user="u",
+        insightvm_password="p",
+        insightvm_timeout=5,
+        insightvm_verify_ssl=False,
+        page_size=10,
+        interval_seconds=3600,
+        max_retries=1,
+        retry_backoff_seconds=0.0,
+        severities=("critical", "high"),
+        log_level="INFO",
+        log_file="logs/integration.log",
+        payload_dir="payloads",
+        backend_enabled=False,
+        backend_url="http://127.0.0.1:9999/txdxsecure/guarda_alarma.php",
+        backend_local="Txdxsecure",
+        backend_alarm_type="1 - Alarma de seguridad",
+        backend_timeout=5,
+        backend_verify_ssl=False,
+    )
+    collector = InsightVMCollector(client=InsightVMClient(settings=settings))
+
+    payload = collector.collect(page_size=10, allowed_severities=("critical", "high"))
+
+    assert payload["meta"]["findings_count"] == 1
+    assert payload["meta"]["filtered_inactive_count"] == 1
+    assert payload["meta"]["vulnerability_detail_requests"] == 1
+    assert payload["findings"][0]["vulnerability_id"] == "v1"
+    assert payload["findings"][0]["insightvm_status"] == "vulnerable"
 

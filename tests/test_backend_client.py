@@ -42,6 +42,7 @@ def test_backend_send_success(backend_alarm_test_server):
                 "cvss_score": 9.8,
                 "cves": ["CVE-2017-11804"],
                 "source": "insightvm",
+                "insightvm_status": "vulnerable",
             }
         ]
     }
@@ -55,6 +56,7 @@ def test_backend_send_success(backend_alarm_test_server):
     assert sent_payload["cvss_score"] == 9.8
     assert sent_payload["cves"] == "CVE-2017-11804"
     assert sent_payload["source"] == "insightvm"
+    assert sent_payload["insightvm_status"] == "vulnerable"
 
 
 def test_backend_send_conflict(backend_alarm_test_server):
@@ -93,6 +95,7 @@ def test_backend_prepare_filtered_findings_includes_extended_fields(backend_alar
                 "cves": ["CVE-2017-11804"],
                 "source": "insightvm",
                 "fechaalarma": "2026-05-27 16:10:00",
+                "insightvm_status": "vulnerable",
             }
         ]
     }
@@ -107,7 +110,6 @@ def test_backend_prepare_filtered_findings_includes_extended_fields(backend_alar
         "TipoAlarma": "1 - Alarma de seguridad [Critical] - Microsoft CVE-2017-11804",
         "Local": "Txdxsecure",
         "fechaalarma": "2026-05-27 16:10:00",
-        "estado": 1,
         "asset_id": "282",
         "vulnerability_id": "windows-hotfix-ms03-007",
         "vulnerability_title": "Microsoft CVE-2017-11804",
@@ -115,6 +117,7 @@ def test_backend_prepare_filtered_findings_includes_extended_fields(backend_alar
         "cvss_score": 9.8,
         "cves": "CVE-2017-11804",
         "source": "insightvm",
+        "insightvm_status": "vulnerable",
     }
 
 
@@ -141,4 +144,25 @@ def test_backend_disabled_does_not_send_requests(backend_alarm_test_server):
     assert result["prepared_alarms"] == 1
     assert result["sent_ok"] == 0
     assert backend_alarm_test_server["state"].requests == []
+
+
+def test_backend_prepare_uses_ip_when_hostname_missing(backend_alarm_test_server):
+    client = BackendAlarmClient(_settings(backend_alarm_test_server["url"]))
+
+    prepared = client.prepare_filtered_findings(
+        {
+            "findings": [
+                {
+                    "asset_ip": "10.0.0.100",
+                    "severity": "critical",
+                    "title": "Fallback host",
+                    "insightvm_status": "vulnerable",
+                }
+            ]
+        }
+    )
+
+    alarm = prepared["alarms"][0]
+    assert alarm["servidor"] == "10.0.0.100"
+    assert alarm["ip"] == "10.0.0.100"
 

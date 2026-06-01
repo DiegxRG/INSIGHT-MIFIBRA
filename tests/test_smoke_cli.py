@@ -35,3 +35,4 @@ def test_cli_once_smoke_real_server(monkeypatch, tmp_path: Path, insightvm_test_
     prepared_data = json.loads(prepared.read_text(encoding="utf-8"))
     assert filtered_data["meta"]["allowed_severities"] == ["critical", "high"]
     assert prepared_data["prepared_alarms_count"] == 1
+    assert prepared_data["alarms"][0]["insightvm_status"] == "vulnerable"

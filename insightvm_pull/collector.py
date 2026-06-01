@@ -27,6 +27,7 @@ class InsightVMCollector:
         vulnerability_refs_count = 0
         filtered_before_detail_count = 0
         filtered_after_detail_count = 0
+        filtered_inactive_count = 0
         vulnerability_detail_requests = 0
 
         assets, assets_pages = self._fetch_assets_with_raw_pages(page_size=page_size)
@@ -54,6 +55,13 @@ class InsightVMCollector:
                 vuln_id = str(vuln_id)
                 vulnerability_refs_count += 1
 
+                ref_status = _extract_status(ref)
+                if ref_status and ref_status != "vulnerable":
+                    filtered_inactive_count += 1
+                    continue
+                if not ref_status:
+                    ref_status = "vulnerable"
+
                 ref_severity = _extract_severity(ref)
                 if allowed and ref_severity != "unknown" and ref_severity not in allowed:
                     filtered_before_detail_count += 1
@@ -65,6 +73,7 @@ class InsightVMCollector:
                         "asset_ip": _extract_asset_ip(asset),
                         "asset_hostname": asset.get("hostName") or asset.get("hostname") or asset.get("name"),
                         "vulnerability_id": vuln_id,
+                        "insightvm_status": ref_status,
                         "raw_ref": ref,
                     }
                 )
@@ -105,7 +114,7 @@ class InsightVMCollector:
                     "risk_score": vdef.get("riskScore"),
                     "cves": cves,
                     "source": "insightvm",
-                    "estado": 1,
+                    "insightvm_status": candidate["insightvm_status"],
                     "fechaalarma": _extract_alert_time(ref, vdef),
                     "raw": vdef,
                     "raw_ref": ref,
@@ -123,6 +132,7 @@ class InsightVMCollector:
                 "vulnerability_detail_requests": vulnerability_detail_requests,
                 "filtered_before_detail_count": filtered_before_detail_count,
                 "filtered_after_detail_count": filtered_after_detail_count,
+                "filtered_inactive_count": filtered_inactive_count,
             },
             "raw_api": {
                 "assets_pages": assets_pages,
@@ -333,6 +343,7 @@ def _extract_alert_time(*records: dict[str, Any]) -> str:
             "lastFound",
             "lastSeen",
             "mostRecentInstance",
+            "since",
             "date",
             "discovered",
             "firstDiscovered",
@@ -341,6 +352,14 @@ def _extract_alert_time(*records: dict[str, Any]) -> str:
             if isinstance(value, str) and value.strip():
                 return value.strip().replace("T", " ")[:19]
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _extract_status(record: dict[str, Any]) -> str | None:
+    value = record.get("status")
+    if not isinstance(value, str):
+        return None
+    value = value.strip().lower()
+    return value or None
 
 
 def _resource_signature(item: dict[str, Any]) -> str:

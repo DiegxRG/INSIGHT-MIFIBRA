@@ -54,5 +54,7 @@ def test_run_service_retries_and_persists_real_server(tmp_path: Path, insightvm_
     assert filtered_data["meta"]["findings_count"] == 1
     assert prepared_data["prepared_alarms_count"] == 1
     assert prepared_data["alarms"][0]["severity"] == "Critical"
+    assert prepared_data["alarms"][0]["insightvm_status"] == "vulnerable"
+    assert "estado" not in prepared_data["alarms"][0]
     assert meta_data["success"] is True
     assert server["state"].assets_calls >= 2

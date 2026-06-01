@@ -47,8 +47,19 @@ py -m pytest -q
 - Payloads (en `payloads/`):
   - `raw_api_YYYYmmdd_HHMMSS.json` -> data cruda 1:1 desde API InsightVM.
   - `filtered_YYYYmmdd_HHMMSS.json` -> data filtrada por severidad (por defecto `critical,high`).
-  - `prepared_backend_YYYYmmdd_HHMMSS.json` -> payload ya normalizado al formato que recibiría backend, pero sin enviarlo si `BACKEND_ENABLED=false`.
+  - `prepared_backend_YYYYmmdd_HHMMSS.json` -> artefacto final listo para backend; su lista `alarms` contiene cada payload exacto que se enviaría si `BACKEND_ENABLED=true`.
   - `run_YYYYmmdd_HHMMSS.meta.json` -> metadatos del ciclo (éxito/error, tiempos, conteos).
+
+## Fase actual
+
+Fase actual: validacion del payload final pre-backend.
+
+Avances ya incorporados:
+
+1. `fechaalarma` usa metadata operativa del hallazgo y prioriza `since` cuando InsightVM la expone.
+2. el payload final incluye `insightvm_status`.
+3. `servidor` usa hostname cuando existe y hace fallback a IP cuando no viene nombre util.
+4. `prepared_backend_*.json` es la salida de verdad para revisar exactamente que se enviaria al backend.
 
 ## Flujo funcional
 
@@ -106,7 +117,6 @@ La integración envía JSON por `POST` con estos campos:
 - `TipoAlarma`
 - `Local`
 - `fechaalarma`
-- `estado`
 - `asset_id`
 - `vulnerability_id`
 - `vulnerability_title`
@@ -114,6 +124,7 @@ La integración envía JSON por `POST` con estos campos:
 - `cvss_score`
 - `cves`
 - `source`
+- `insightvm_status`
 
 Respuestas que maneja:
 - Éxito: `{"success": true}`
