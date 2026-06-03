@@ -4,49 +4,61 @@ import logging
 from typing import Any, Iterator
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from insightvm_pull.config import Settings
 
 log = logging.getLogger("insightvm_pull.client")
 
 
+class InsightVMRequestError(RuntimeError):
+    def __init__(self, message: str, *, retryable: bool, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.status_code = status_code
+
+
+def is_retryable_status_code(status_code: int) -> bool:
+    return status_code in {429, 500, 502, 503, 504}
+
+
 class InsightVMClient:
     def __init__(self, settings: Settings, session: requests.Session | None = None) -> None:
         self.settings = settings
         self.session = session or requests.Session()
-        retry = Retry(
-            total=3,
-            connect=3,
-            read=3,
-            backoff_factor=0.5,
-            status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods=frozenset(["GET"]),
-            raise_on_status=False,
-        )
-        adapter = HTTPAdapter(max_retries=retry)
-        self.session.mount("https://", adapter)
-        self.session.mount("http://", adapter)
 
     def get(self, endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         url = self.settings.insightvm_base_url.rstrip("/") + "/" + endpoint.lstrip("/")
         log.debug("GET %s params=%s", endpoint, params)
-        response = self.session.get(
-            url,
-            auth=(self.settings.insightvm_user, self.settings.insightvm_password),
-            params=params,
-            timeout=self.settings.insightvm_timeout,
-            verify=self.settings.insightvm_verify_ssl,
-        )
+        try:
+            response = self.session.get(
+                url,
+                auth=(self.settings.insightvm_user, self.settings.insightvm_password),
+                params=params,
+                timeout=self.settings.insightvm_timeout,
+                verify=self.settings.insightvm_verify_ssl,
+            )
+        except requests.Timeout as exc:
+            raise InsightVMRequestError(f"InsightVM timeout on {endpoint}: {exc}", retryable=True) from exc
+        except requests.ConnectionError as exc:
+            raise InsightVMRequestError(f"InsightVM connection error on {endpoint}: {exc}", retryable=True) from exc
+        except requests.RequestException as exc:
+            raise InsightVMRequestError(f"InsightVM request error on {endpoint}: {exc}", retryable=False) from exc
+
         if response.status_code >= 400:
-            raise RuntimeError(f"InsightVM HTTP {response.status_code} on {endpoint}: {response.text[:300]}")
+            raise InsightVMRequestError(
+                f"InsightVM HTTP {response.status_code} on {endpoint}: {response.text[:300]}",
+                retryable=is_retryable_status_code(response.status_code),
+                status_code=response.status_code,
+            )
         try:
             data = response.json()
         except ValueError as exc:
-            raise RuntimeError(f"Non-JSON response from {endpoint}") from exc
+            raise InsightVMRequestError(f"Non-JSON response from {endpoint}", retryable=False) from exc
         if not isinstance(data, dict):
-            raise RuntimeError(f"Unexpected response type from {endpoint}: {type(data)!r}")
+            raise InsightVMRequestError(
+                f"Unexpected response type from {endpoint}: {type(data)!r}",
+                retryable=False,
+            )
         return data
 
     def get_paged(

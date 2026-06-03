@@ -13,6 +13,7 @@ def insightvm_test_server():
     class State:
         assets_calls = 0
         fail_assets_times = 0
+        assets_failure_status = 500
         assets_pages = {}
         asset_vulns = {}
         vuln_defs = {}
@@ -47,7 +48,7 @@ def insightvm_test_server():
             if path == "/api/3/assets":
                 state.assets_calls += 1
                 if state.assets_calls <= state.fail_assets_times:
-                    self._json({"error": "temporary"}, status=500)
+                    self._json({"error": "temporary"}, status=state.assets_failure_status)
                     return
                 page = int(query.get("page", ["0"])[0])
                 resources = state.assets_pages.get(page, [])

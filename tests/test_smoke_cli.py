@@ -28,11 +28,12 @@ def test_cli_once_smoke_real_server(monkeypatch, tmp_path: Path, insightvm_test_
     monkeypatch.setattr("sys.argv", ["insightvm-pull", "--env-file", str(env_file), "--once"])
     cli.main()
     files = sorted((tmp_path / "payloads").glob("*.json"))
-    assert len(files) == 4
+    assert len(files) == 3
     filtered = [p for p in files if p.name.startswith("filtered_")][0]
     prepared = [p for p in files if p.name.startswith("prepared_backend_")][0]
     filtered_data = json.loads(filtered.read_text(encoding="utf-8"))
     prepared_data = json.loads(prepared.read_text(encoding="utf-8"))
     assert filtered_data["meta"]["allowed_severities"] == ["critical", "high"]
     assert prepared_data["prepared_alarms_count"] == 1
-    assert prepared_data["alarms"][0]["insightvm_status"] == "vulnerable"
+    assert prepared_data["alarms"][0]["finding_id"] == "a1_v1"
+    assert "insightvm_status" not in prepared_data["alarms"][0]

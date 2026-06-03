@@ -42,7 +42,6 @@ def test_backend_send_success(backend_alarm_test_server):
                 "cvss_score": 9.8,
                 "cves": ["CVE-2017-11804"],
                 "source": "insightvm",
-                "insightvm_status": "vulnerable",
             }
         ]
     }
@@ -50,13 +49,14 @@ def test_backend_send_success(backend_alarm_test_server):
     assert result["sent_ok"] == 1
     assert result["backend_errors"] == 0
     sent_payload = backend_alarm_test_server["state"].requests[0]
+    assert sent_payload["finding_id"] == "282_windows-hotfix-ms03-007"
     assert sent_payload["asset_id"] == "282"
     assert sent_payload["vulnerability_id"] == "windows-hotfix-ms03-007"
     assert sent_payload["severity"] == "Critical"
     assert sent_payload["cvss_score"] == 9.8
     assert sent_payload["cves"] == "CVE-2017-11804"
     assert sent_payload["source"] == "insightvm"
-    assert sent_payload["insightvm_status"] == "vulnerable"
+    assert "insightvm_status" not in sent_payload
 
 
 def test_backend_send_conflict(backend_alarm_test_server):
@@ -64,7 +64,14 @@ def test_backend_send_conflict(backend_alarm_test_server):
     client = BackendAlarmClient(_settings(backend_alarm_test_server["url"]))
     payload = {
         "findings": [
-            {"asset_hostname": "OLT-CENTRAL-01", "asset_ip": "192.168.1.100", "severity": "high", "title": "Conflict vuln"}
+            {
+                "asset_hostname": "OLT-CENTRAL-01",
+                "asset_ip": "192.168.1.100",
+                "asset_id": "282",
+                "vulnerability_id": "windows-hotfix-ms03-007",
+                "severity": "high",
+                "title": "Conflict vuln",
+            }
         ]
     }
     result = client.send_filtered_findings(payload)
@@ -95,7 +102,6 @@ def test_backend_prepare_filtered_findings_includes_extended_fields(backend_alar
                 "cves": ["CVE-2017-11804"],
                 "source": "insightvm",
                 "fechaalarma": "2026-05-27 16:10:00",
-                "insightvm_status": "vulnerable",
             }
         ]
     }
@@ -105,6 +111,7 @@ def test_backend_prepare_filtered_findings_includes_extended_fields(backend_alar
     assert prepared["prepared_alarms_count"] == 1
     alarm = prepared["alarms"][0]
     assert alarm == {
+        "finding_id": "282_windows-hotfix-ms03-007",
         "servidor": "OLT-PRUEBA-01",
         "ip": "10.0.0.100",
         "TipoAlarma": "1 - Alarma de seguridad [Critical] - Microsoft CVE-2017-11804",
@@ -117,8 +124,8 @@ def test_backend_prepare_filtered_findings_includes_extended_fields(backend_alar
         "cvss_score": 9.8,
         "cves": "CVE-2017-11804",
         "source": "insightvm",
-        "insightvm_status": "vulnerable",
     }
+    assert "skipped_findings" not in prepared
 
 
 def test_backend_disabled_does_not_send_requests(backend_alarm_test_server):
@@ -154,15 +161,17 @@ def test_backend_prepare_uses_ip_when_hostname_missing(backend_alarm_test_server
             "findings": [
                 {
                     "asset_ip": "10.0.0.100",
+                    "asset_id": "282",
+                    "vulnerability_id": "windows-hotfix-ms03-007",
                     "severity": "critical",
                     "title": "Fallback host",
-                    "insightvm_status": "vulnerable",
                 }
             ]
         }
     )
 
     alarm = prepared["alarms"][0]
+    assert alarm["finding_id"] == "282_windows-hotfix-ms03-007"
     assert alarm["servidor"] == "10.0.0.100"
     assert alarm["ip"] == "10.0.0.100"
 

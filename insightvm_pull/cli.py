@@ -31,6 +31,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--log-level", default=None, help="DEBUG/INFO/WARNING/ERROR")
     p.add_argument("--log-file", default=None, help="Path to log file")
     p.add_argument("--payload-dir", default=None, help="Directory to persist payloads")
+    p.add_argument(
+        "--persist-raw-api-debug",
+        action="store_true",
+        default=None,
+        help="Persist raw InsightVM API payloads for diagnostics",
+    )
     p.add_argument("--once", action="store_true", help="Run one cycle and exit")
     return p
 
@@ -46,6 +52,7 @@ def main() -> None:
         "log_level": args.log_level,
         "log_file": args.log_file,
         "payload_dir": args.payload_dir,
+        "persist_raw_api_debug": args.persist_raw_api_debug,
     }
     overrides = {k: v for k, v in overrides.items() if v is not None}
     try:

@@ -32,19 +32,25 @@ class BackendAlarmClient:
             if alarm is None:
                 validation_errors += 1
                 skipped_findings.append(
-                    {"success": False, "message": "Missing required fields: servidor/ip", "finding": finding}
+                    {
+                        "success": False,
+                        "message": "Missing required fields: servidor/ip/asset_id/vulnerability_id",
+                        "finding": finding,
+                    }
                 )
                 continue
             alarms.append(alarm)
 
-        return {
+        payload = {
             "enabled": self.settings.backend_enabled,
             "total_filtered_findings": len(findings),
             "prepared_alarms_count": len(alarms),
             "validation_errors": validation_errors,
             "alarms": alarms,
-            "skipped_findings": skipped_findings,
         }
+        if skipped_findings:
+            payload["skipped_findings"] = skipped_findings
+        return payload
 
     def send_filtered_findings(self, filtered_payload: dict[str, Any]) -> dict[str, Any]:
         prepared_payload = self.prepare_filtered_findings(filtered_payload)
@@ -101,9 +107,11 @@ class BackendAlarmClient:
     def _build_alarm_payload(self, finding: dict[str, Any]) -> dict[str, Any] | None:
         servidor = str(finding.get("asset_hostname") or "").strip()
         ip = str(finding.get("asset_ip") or "").strip()
+        asset_id = str(finding.get("asset_id") or "").strip()
+        vulnerability_id = str(finding.get("vulnerability_id") or "").strip()
         if not servidor:
             servidor = ip
-        if not servidor or not ip:
+        if not servidor or not ip or not asset_id or not vulnerability_id:
             return None
 
         sev = str(finding.get("severity") or "").lower()
@@ -120,22 +128,22 @@ class BackendAlarmClient:
         if cvss_score is None:
             cvss_score = finding.get("cvss")
 
-        insightvm_status = str(finding.get("insightvm_status") or "").strip().lower()
+        finding_id = _build_finding_id(asset_id, vulnerability_id)
 
         return {
+            "finding_id": finding_id,
             "servidor": servidor,
             "ip": ip,
             "TipoAlarma": tipo,
             "Local": self.settings.backend_local,
             "fechaalarma": fecha,
-            "asset_id": str(finding.get("asset_id") or "").strip(),
-            "vulnerability_id": str(finding.get("vulnerability_id") or "").strip(),
+            "asset_id": asset_id,
+            "vulnerability_id": vulnerability_id,
             "vulnerability_title": title,
             "severity": _display_severity(sev),
             "cvss_score": cvss_score,
             "cves": cves,
             "source": str(finding.get("source") or "insightvm").strip() or "insightvm",
-            "insightvm_status": insightvm_status,
         }
 
     def _post_alarm(self, alarm_payload: dict[str, Any]) -> dict[str, Any]:
@@ -174,4 +182,8 @@ def _display_severity(value: str) -> str:
         "unknown": "Unknown",
     }
     return mapping.get(value, value.title() if value else "Unknown")
+
+
+def _build_finding_id(asset_id: str, vulnerability_id: str) -> str:
+    return f"{asset_id}_{vulnerability_id}"
 

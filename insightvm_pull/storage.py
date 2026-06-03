@@ -18,10 +18,11 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def persist_cycle_payloads(
     payload_dir: str,
-    raw_payload: dict[str, Any],
-    filtered_payload: dict[str, Any],
-    prepared_backend_payload: dict[str, Any],
+    raw_payload: dict[str, Any] | None,
+    filtered_payload: dict[str, Any] | None,
+    prepared_backend_payload: dict[str, Any] | None,
     run_meta: dict[str, Any],
+    persist_raw_api_debug: bool = False,
 ) -> dict[str, str]:
     base = Path(payload_dir)
     stamp = utc_stamp()
@@ -30,15 +31,20 @@ def persist_cycle_payloads(
     prepared_backend_path = base / f"prepared_backend_{stamp}.json"
     meta_path = base / f"run_{stamp}.meta.json"
 
-    raw_api_payload = raw_payload.get("raw_api", {})
+    paths = {"meta": str(meta_path)}
 
-    write_json(raw_api_path, raw_api_payload if isinstance(raw_api_payload, dict) else {})
-    write_json(filtered_path, filtered_payload)
-    write_json(prepared_backend_path, prepared_backend_payload if isinstance(prepared_backend_payload, dict) else {})
+    raw_api_payload = (raw_payload or {}).get("raw_api", {})
+    if persist_raw_api_debug and isinstance(raw_api_payload, dict) and raw_api_payload:
+        write_json(raw_api_path, raw_api_payload)
+        paths["raw_api"] = str(raw_api_path)
+
+    if isinstance(filtered_payload, dict):
+        write_json(filtered_path, filtered_payload)
+        paths["filtered"] = str(filtered_path)
+
+    if isinstance(prepared_backend_payload, dict):
+        write_json(prepared_backend_path, prepared_backend_payload)
+        paths["prepared_backend"] = str(prepared_backend_path)
+
     write_json(meta_path, run_meta)
-    return {
-        "raw_api": str(raw_api_path),
-        "filtered": str(filtered_path),
-        "prepared_backend": str(prepared_backend_path),
-        "meta": str(meta_path),
-    }
+    return paths

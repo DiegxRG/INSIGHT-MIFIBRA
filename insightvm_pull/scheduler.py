@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from insightvm_pull.backend_client import BackendAlarmClient
+from insightvm_pull.client import InsightVMRequestError
 from insightvm_pull.collector import InsightVMCollector, filter_payload_by_severity
 from insightvm_pull.config import Settings
 from insightvm_pull.storage import persist_cycle_payloads
@@ -39,6 +40,9 @@ def run_service(settings: Settings, collector: InsightVMCollector, once: bool = 
             except Exception as exc:
                 last_error = str(exc)
                 log.exception("cycle=%s attempt=%s status=error error=%s", cycle, attempt, exc)
+                if not _should_retry_cycle_error(exc):
+                    log.error("cycle=%s attempt=%s retry=false reason=non_retryable_error", cycle, attempt)
+                    break
                 if attempt < settings.max_retries:
                     sleep_seconds = settings.retry_backoff_seconds * (2 ** (attempt - 1))
                     log.warning("cycle=%s retrying_in=%.2fs", cycle, sleep_seconds)
@@ -74,13 +78,20 @@ def run_service(settings: Settings, collector: InsightVMCollector, once: bool = 
             "max_retries": settings.max_retries,
             "backend": backend_result,
         }
-        paths = persist_cycle_payloads(settings.payload_dir, raw_payload, filtered_payload, prepared_backend_payload, run_meta)
+        paths = persist_cycle_payloads(
+            settings.payload_dir,
+            raw_payload if success else None,
+            filtered_payload if success else None,
+            prepared_backend_payload if success else None,
+            run_meta,
+            persist_raw_api_debug=settings.persist_raw_api_debug,
+        )
         log.info(
             "cycle=%s persisted raw_api=%s filtered=%s prepared_backend=%s meta=%s",
             cycle,
-            paths["raw_api"],
-            paths["filtered"],
-            paths["prepared_backend"],
+            paths.get("raw_api"),
+            paths.get("filtered"),
+            paths.get("prepared_backend"),
             paths["meta"],
         )
 
@@ -89,3 +100,7 @@ def run_service(settings: Settings, collector: InsightVMCollector, once: bool = 
 
         log.info("cycle=%s sleeping interval_seconds=%s", cycle, settings.interval_seconds)
         time.sleep(settings.interval_seconds)
+
+
+def _should_retry_cycle_error(exc: Exception) -> bool:
+    return isinstance(exc, InsightVMRequestError) and exc.retryable

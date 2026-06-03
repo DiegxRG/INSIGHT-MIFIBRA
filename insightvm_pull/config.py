@@ -48,6 +48,7 @@ class Settings:
     backend_alarm_type: str
     backend_timeout: int
     backend_verify_ssl: bool
+    persist_raw_api_debug: bool = False
 
 
 def load_settings(env_file: str = ".env", overrides: dict | None = None) -> Settings:
@@ -73,6 +74,10 @@ def load_settings(env_file: str = ".env", overrides: dict | None = None) -> Sett
     backend_alarm_type = str(ov.get("backend_alarm_type") or os.getenv("BACKEND_ALARM_TYPE", "1 - Alarma de seguridad")).strip()
     backend_timeout = int(ov.get("backend_timeout") or os.getenv("BACKEND_TIMEOUT", "30"))
     backend_verify_ssl = _truthy(str(ov.get("backend_verify_ssl")) if ov.get("backend_verify_ssl") is not None else os.getenv("BACKEND_VERIFY_SSL"), False)
+    persist_raw_api_debug = _truthy(
+        str(ov.get("persist_raw_api_debug")) if ov.get("persist_raw_api_debug") is not None else os.getenv("PERSIST_RAW_API_DEBUG"),
+        False,
+    )
 
     if not base_url:
         raise ValueError("INSIGHTVM_BASE_URL is required.")
@@ -107,4 +112,5 @@ def load_settings(env_file: str = ".env", overrides: dict | None = None) -> Sett
         backend_alarm_type=backend_alarm_type,
         backend_timeout=backend_timeout,
         backend_verify_ssl=backend_verify_ssl,
+        persist_raw_api_debug=persist_raw_api_debug,
     )
