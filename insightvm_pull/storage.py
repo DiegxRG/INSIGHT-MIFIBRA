@@ -25,11 +25,12 @@ def persist_cycle_payloads(
     persist_raw_api_debug: bool = False,
 ) -> dict[str, str]:
     base = Path(payload_dir)
+    base.mkdir(parents=True, exist_ok=True)
     stamp = utc_stamp()
     raw_api_path = base / f"raw_api_{stamp}.json"
-    filtered_path = base / f"filtered_{stamp}.json"
-    prepared_backend_path = base / f"prepared_backend_{stamp}.json"
-    meta_path = base / f"run_{stamp}.meta.json"
+    filtered_path = base / "filtered_latest.json"
+    prepared_backend_path = base / "prepared_backend_latest.json"
+    meta_path = base / "run_latest.meta.json"
 
     paths = {"meta": str(meta_path)}
 

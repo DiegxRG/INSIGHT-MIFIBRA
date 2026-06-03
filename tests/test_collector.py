@@ -9,8 +9,32 @@ def test_filter_payload_by_severity():
     payload = {
         "assets": [{"id": 1}],
         "findings": [
-            {"severity": "critical"},
-            {"severity": "high"},
+            {
+                "severity": "critical",
+                "asset_id": 1,
+                "asset_ip": "10.0.0.1",
+                "asset_hostname": "srv-1",
+                "vulnerability_id": "v1",
+                "title": "Critical vuln",
+                "cvss": 9.8,
+                "cves": ["CVE-1"],
+                "source": "insightvm",
+                "fechaalarma": "2026-01-01 00:00:00",
+                "raw": {"foo": "bar"},
+                "raw_ref": {"baz": "qux"},
+            },
+            {
+                "severity": "high",
+                "asset_id": 2,
+                "asset_ip": "10.0.0.2",
+                "asset_hostname": "srv-2",
+                "vulnerability_id": "v2",
+                "vulnerability_title": "High vuln",
+                "cvss_score": 7.1,
+                "cves": ["CVE-2"],
+                "source": "insightvm",
+                "fechaalarma": "2026-01-01 01:00:00",
+            },
             {"severity": "medium"},
         ],
         "meta": {"assets_count": 1, "findings_count": 3},
@@ -18,6 +42,11 @@ def test_filter_payload_by_severity():
     out = filter_payload_by_severity(payload, ("critical", "high"))
     assert out["meta"]["findings_count"] == 2
     assert [f["severity"] for f in out["findings"]] == ["critical", "high"]
+    assert "assets" not in out
+    assert out["findings"][0]["vulnerability_title"] == "Critical vuln"
+    assert out["findings"][0]["cvss_score"] == 9.8
+    assert "raw" not in out["findings"][0]
+    assert "raw_ref" not in out["findings"][0]
 
 
 def test_collect_filters_before_fetching_vulnerability_detail(insightvm_test_server):

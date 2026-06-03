@@ -45,13 +45,13 @@ py -m pytest -q
   - Archivo: `logs/integration.log`
 
 - Payloads (en `payloads/`):
-  - `filtered_YYYYmmdd_HHMMSS.json` -> data filtrada por severidad (por defecto `critical,high`).
-  - `prepared_backend_YYYYmmdd_HHMMSS.json` -> artefacto final listo para backend; su lista `alarms` contiene cada payload exacto que se enviaría si `BACKEND_ENABLED=true`.
-  - `run_YYYYmmdd_HHMMSS.meta.json` -> metadatos del ciclo (éxito/error, tiempos, conteos).
+  - `filtered_latest.json` -> data filtrada y compacta por severidad (por defecto `critical,high`).
+  - `prepared_backend_latest.json` -> artefacto final listo para backend; su lista `alarms` contiene cada payload exacto que se enviaría si `BACKEND_ENABLED=true`.
+  - `run_latest.meta.json` -> metadatos del último ciclo (éxito/error, tiempos, conteos).
   - `raw_api_YYYYmmdd_HHMMSS.json` -> solo se genera si `PERSIST_RAW_API_DEBUG=true` o si se usa `--persist-raw-api-debug`.
 
 Nota importante:
-`raw_api_*` es solo un artefacto de diagnóstico. No participa en el filtrado ni en la preparación del payload backend. Si no se guarda `raw_api_*`, igual se siguen generando normalmente `filtered_*` y `prepared_backend_*`.
+`raw_api_*` es solo un artefacto de diagnóstico. No participa en el filtrado ni en la preparación del payload backend. Si no se guarda `raw_api_*`, igual se siguen generando normalmente `filtered_latest.json` y `prepared_backend_latest.json`.
 
 ## Fase actual
 
@@ -62,13 +62,13 @@ Avances ya incorporados:
 1. `fechaalarma` usa metadata operativa del hallazgo y prioriza `since` cuando InsightVM la expone.
 2. el payload final incluye `finding_id` para relacionar alarma y detalle técnico.
 3. `servidor` usa hostname cuando existe y hace fallback a IP cuando no viene nombre util.
-4. `prepared_backend_*.json` es la salida de verdad para revisar exactamente que se enviaria al backend.
+4. `prepared_backend_latest.json` es la salida de verdad para revisar exactamente que se enviaria al backend.
 
 ## Flujo funcional
 
 1. Baja data desde InsightVM (`/assets`, `/assets/{id}/vulnerabilities`, `/vulnerabilities/{id}`).
 2. Si la severidad ya viene en la lista de vulnerabilidades por asset, descarta temprano lo que no coincide para evitar pedir detalles innecesarios.
-3. Aplica filtro de severidad y guarda resultado operativo en `filtered`.
+3. Aplica filtro de severidad y guarda un resultado compacto en `filtered_latest.json`.
 4. Prepara el payload enriquecido con `finding_id`, `asset_id`, `vulnerability_id`, `vulnerability_title`, `severity`, `cvss_score`, `cves`, `source` y lo guarda en `prepared_backend`.
 5. Si está activo el modo diagnóstico, también persiste `raw_api` para análisis.
 6. Si `BACKEND_ENABLED=true`, envía ese payload preparado al backend (`guarda_alarma.php`).
@@ -142,7 +142,7 @@ Respuestas que maneja:
 - Conflicto: `{"success": false, "message": "Ya existe un registro activo ..."}`
 - Error BD/general: `{"success": false, "message": "Error en la base de datos"}`
 
-El detalle del envío se registra en `run_*.meta.json` bajo la clave `backend`:
+El detalle del envío se registra en `run_latest.meta.json` bajo la clave `backend`:
 - `sent_ok`
 - `conflicts`
 - `validation_errors`
@@ -150,9 +150,10 @@ El detalle del envío se registra en `run_*.meta.json` bajo la clave `backend`:
 
 ## Política de persistencia
 
-- Corrida exitosa normal: guarda `filtered_*`, `prepared_backend_*` y `run_*.meta.json`.
-- Corrida exitosa en modo debug: además guarda `raw_api_*`.
-- Corrida fallida total: guarda solo `run_*.meta.json`.
+- Corrida exitosa normal: guarda `filtered_latest.json`, `prepared_backend_latest.json` y `run_latest.meta.json`.
+- Corrida exitosa en modo debug: además guarda `raw_api_YYYYmmdd_HHMMSS.json`.
+- Corrida fallida total: actualiza solo `run_latest.meta.json`.
+- Si falla la descarga o transformación local, se conservan los últimos `filtered_latest.json` y `prepared_backend_latest.json` válidos.
 
 ## Política de reintentos
 

@@ -252,12 +252,15 @@ def filter_payload_by_severity(payload: dict[str, Any], allowed_severities: tupl
     findings = payload.get("findings", [])
     if not isinstance(findings, list):
         findings = []
-    filtered_findings = [f for f in findings if isinstance(f, dict) and f.get("severity") in allowed_severities]
+    filtered_findings = [
+        _compact_filtered_finding(f)
+        for f in findings
+        if isinstance(f, dict) and f.get("severity") in allowed_severities
+    ]
     meta = payload.get("meta", {})
     if not isinstance(meta, dict):
         meta = {}
     return {
-        "assets": payload.get("assets", []),
         "findings": filtered_findings,
         "meta": {
             **meta,
@@ -366,3 +369,18 @@ def _resource_signature(item: dict[str, Any]) -> str:
     vuln_id = item.get("id")
     severity = item.get("severity")
     return f"{vuln_id}|{severity}"
+
+
+def _compact_filtered_finding(finding: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "asset_id": finding.get("asset_id"),
+        "asset_ip": finding.get("asset_ip"),
+        "asset_hostname": finding.get("asset_hostname"),
+        "vulnerability_id": finding.get("vulnerability_id"),
+        "vulnerability_title": finding.get("vulnerability_title") or finding.get("title"),
+        "severity": finding.get("severity"),
+        "cvss_score": finding.get("cvss_score") if finding.get("cvss_score") is not None else finding.get("cvss"),
+        "cves": finding.get("cves"),
+        "source": finding.get("source"),
+        "fechaalarma": finding.get("fechaalarma"),
+    }
