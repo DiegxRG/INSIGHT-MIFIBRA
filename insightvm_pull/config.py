@@ -42,6 +42,7 @@ class Settings:
     log_level: str
     log_file: str
     payload_dir: str
+    persist_payload_artifacts: bool
     backend_enabled: bool
     backend_url: str
     backend_local: str
@@ -68,6 +69,12 @@ def load_settings(env_file: str = ".env", overrides: dict | None = None) -> Sett
     log_level = str(ov.get("log_level") or os.getenv("LOG_LEVEL", "INFO")).upper()
     log_file = str(ov.get("log_file") or os.getenv("LOG_FILE", "logs/integration.log"))
     payload_dir = str(ov.get("payload_dir") or os.getenv("PAYLOAD_DIR", "payloads"))
+    persist_payload_artifacts = _truthy(
+        str(ov.get("persist_payload_artifacts"))
+        if ov.get("persist_payload_artifacts") is not None
+        else os.getenv("PERSIST_PAYLOAD_ARTIFACTS"),
+        True,
+    )
     backend_enabled = _truthy(str(ov.get("backend_enabled")) if ov.get("backend_enabled") is not None else os.getenv("BACKEND_ENABLED"), False)
     backend_url = str(ov.get("backend_url") or os.getenv("BACKEND_URL", "https://10.208.232.208/txdxsecure/guarda_alarma.php")).strip()
     backend_local = str(ov.get("backend_local") or os.getenv("BACKEND_LOCAL", "Txdxsecure")).strip()
@@ -106,6 +113,7 @@ def load_settings(env_file: str = ".env", overrides: dict | None = None) -> Sett
         log_level=log_level,
         log_file=log_file,
         payload_dir=payload_dir,
+        persist_payload_artifacts=persist_payload_artifacts,
         backend_enabled=backend_enabled,
         backend_url=backend_url,
         backend_local=backend_local,

@@ -21,6 +21,7 @@ def _settings(base_url: str) -> Settings:
         log_level="INFO",
         log_file="logs/test.log",
         payload_dir="payloads",
+        persist_payload_artifacts=True,
         backend_enabled=False,
         backend_url="http://127.0.0.1:9999/txdxsecure/guarda_alarma.php",
         backend_local="Txdxsecure",

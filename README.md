@@ -1,6 +1,6 @@
 # InsightVM Pull Integration
 
-Integración para descargar alertas de InsightVM por estrategia `pull`, con snapshot por ejecución, filtros de severidad, reintentos y logs.
+Integración para descargar alertas de InsightVM por estrategia `pull`, con filtros de severidad, reintentos, logs y persistencia local opcional.
 
 Documentacion funcional detallada: [`docs/INSIGHTVM_INTEGRATION_FLOW.md`](docs/INSIGHTVM_INTEGRATION_FLOW.md)
 
@@ -26,7 +26,7 @@ source venv/bin/activate
 py -m pip install -r requirements.txt
 ```
 
-3. Ejecutar una sola corrida (snapshot):
+3. Ejecutar una sola corrida:
 
 ```bash
 py main.py --env-file .env --once
@@ -53,6 +53,9 @@ py -m pytest -q
 Nota importante:
 `raw_api_*` es solo un artefacto de diagnóstico. No participa en el filtrado ni en la preparación del payload backend. Si no se guarda `raw_api_*`, igual se siguen generando normalmente `filtered_latest.json` y `prepared_backend_latest.json`.
 
+Otro detalle importante:
+`filtered_latest.json`, `prepared_backend_latest.json` y `run_latest.meta.json` se sobreescriben en cada corrida; no crecen por timestamp. El único artefacto acumulativo por defecto es `raw_api_*` cuando el modo debug está activo. Si no quieres guardar ningún snapshot local en despliegue, usa `PERSIST_PAYLOAD_ARTIFACTS=false`.
+
 ## Fase actual
 
 Fase actual: validacion del payload final pre-backend.
@@ -74,25 +77,64 @@ Avances ya incorporados:
 6. Si `BACKEND_ENABLED=true`, envía ese payload preparado al backend (`guarda_alarma.php`).
    Solo se envían hallazgos de severidades configuradas en `ALERT_SEVERITIES` (por defecto: `critical,high`).
 
-## Ejecución continua
+## Formas de ejecución
 
-Modo servicio (intervalo por defecto: 1 hora):
+Corrida única con copia local normal:
+
+```bash
+py main.py --env-file .env --once
+```
+
+Qué guarda:
+`filtered_latest.json`, `prepared_backend_latest.json` y `run_latest.meta.json`.
+
+Corrida única sin copias locales:
+
+```bash
+py main.py --env-file .env --once --no-persist-payloads
+```
+
+Qué hace:
+envía al backend y no deja snapshots JSON en `payloads/`.
+
+Corrida única en modo debug:
+
+```bash
+py main.py --env-file .env --once --persist-raw-api-debug
+```
+
+Qué guarda además:
+un `raw_api_YYYYmmdd_HHMMSS.json` con la respuesta cruda de InsightVM.
+
+Corrida única sin copias locales pero con debug activado:
+
+```bash
+py main.py --env-file .env --once --no-persist-payloads --persist-raw-api-debug
+```
+
+Nota:
+si usas `--no-persist-payloads`, no se guardará ningún JSON local, así que el flag de debug tampoco dejará `raw_api_*` en disco.
+
+Modo servicio continuo con intervalo del `.env`:
 
 ```bash
 py main.py --env-file .env
 ```
 
-Override de intervalo (ej. 30 min):
+Modo servicio continuo con intervalo manual (ej. cada 30 min):
 
 ```bash
 py main.py --env-file .env --interval-seconds 1800
 ```
 
-Modo diagnóstico con persistencia de `raw_api_*`:
+Ejecutar tests:
 
 ```bash
-py main.py --env-file .env --once --persist-raw-api-debug
+py -m pytest -q
 ```
+
+Recomendación para producción:
+si tu plataforma ya tiene scheduler (`cron`, Task Scheduler, Kubernetes CronJob, etc.), lo más simple es ejecutar `py main.py --env-file .env --once --no-persist-payloads` cada domingo a las 09:00.
 
 ## Configuración principal (`.env`)
 
@@ -109,6 +151,7 @@ py main.py --env-file .env --once --persist-raw-api-debug
 - `LOG_LEVEL`
 - `LOG_FILE`
 - `PAYLOAD_DIR`
+- `PERSIST_PAYLOAD_ARTIFACTS` (true/false)
 - `PERSIST_RAW_API_DEBUG` (true/false)
 - `BACKEND_ENABLED` (true/false)
 - `BACKEND_URL` (ej: `https://10.208.232.208/txdxsecure/guarda_alarma.php`)
@@ -154,6 +197,7 @@ El detalle del envío se registra en `run_latest.meta.json` bajo la clave `backe
 - Corrida exitosa en modo debug: además guarda `raw_api_YYYYmmdd_HHMMSS.json`.
 - Corrida fallida total: actualiza solo `run_latest.meta.json`.
 - Si falla la descarga o transformación local, se conservan los últimos `filtered_latest.json` y `prepared_backend_latest.json` válidos.
+- Si `PERSIST_PAYLOAD_ARTIFACTS=false`, no se guarda ningún JSON local en `payloads/`.
 
 ## Política de reintentos
 

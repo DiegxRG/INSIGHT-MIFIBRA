@@ -37,6 +37,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Persist raw InsightVM API payloads for diagnostics",
     )
+    p.add_argument(
+        "--no-persist-payloads",
+        dest="persist_payload_artifacts",
+        action="store_false",
+        default=None,
+        help="Do not persist local payload snapshots",
+    )
     p.add_argument("--once", action="store_true", help="Run one cycle and exit")
     return p
 
@@ -52,6 +59,7 @@ def main() -> None:
         "log_level": args.log_level,
         "log_file": args.log_file,
         "payload_dir": args.payload_dir,
+        "persist_payload_artifacts": args.persist_payload_artifacts,
         "persist_raw_api_debug": args.persist_raw_api_debug,
     }
     overrides = {k: v for k, v in overrides.items() if v is not None}
@@ -71,7 +79,12 @@ def main() -> None:
         ",".join(settings.severities),
         settings.max_retries,
     )
-    log.info("log_file=%s payload_dir=%s", settings.log_file, settings.payload_dir)
+    log.info(
+        "log_file=%s payload_dir=%s persist_payload_artifacts=%s",
+        settings.log_file,
+        settings.payload_dir,
+        settings.persist_payload_artifacts,
+    )
     client = InsightVMClient(settings=settings)
     collector = InsightVMCollector(client=client)
     run_service(settings=settings, collector=collector, once=args.once)

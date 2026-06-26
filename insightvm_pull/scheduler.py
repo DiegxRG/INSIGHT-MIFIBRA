@@ -84,16 +84,20 @@ def run_service(settings: Settings, collector: InsightVMCollector, once: bool = 
             filtered_payload if success else None,
             prepared_backend_payload if success else None,
             run_meta,
+            persist_payload_artifacts=settings.persist_payload_artifacts,
             persist_raw_api_debug=settings.persist_raw_api_debug,
         )
-        log.info(
-            "cycle=%s persisted raw_api=%s filtered=%s prepared_backend=%s meta=%s",
-            cycle,
-            paths.get("raw_api"),
-            paths.get("filtered"),
-            paths.get("prepared_backend"),
-            paths["meta"],
-        )
+        if settings.persist_payload_artifacts:
+            log.info(
+                "cycle=%s persisted raw_api=%s filtered=%s prepared_backend=%s meta=%s",
+                cycle,
+                paths.get("raw_api"),
+                paths.get("filtered"),
+                paths.get("prepared_backend"),
+                paths.get("meta"),
+            )
+        else:
+            log.info("cycle=%s payload_persistence=disabled", cycle)
 
         if once:
             return

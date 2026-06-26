@@ -22,8 +22,12 @@ def persist_cycle_payloads(
     filtered_payload: dict[str, Any] | None,
     prepared_backend_payload: dict[str, Any] | None,
     run_meta: dict[str, Any],
+    persist_payload_artifacts: bool = True,
     persist_raw_api_debug: bool = False,
 ) -> dict[str, str]:
+    if not persist_payload_artifacts:
+        return {}
+
     base = Path(payload_dir)
     base.mkdir(parents=True, exist_ok=True)
     stamp = utc_stamp()

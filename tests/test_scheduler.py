@@ -26,6 +26,7 @@ def test_run_service_retries_and_persists_real_server(tmp_path: Path, insightvm_
         log_level="INFO",
         log_file=str(tmp_path / "logs" / "integration.log"),
         payload_dir=str(tmp_path / "payloads"),
+        persist_payload_artifacts=True,
         backend_enabled=False,
         backend_url="http://127.0.0.1:9999/txdxsecure/guarda_alarma.php",
         backend_local="Txdxsecure",
@@ -76,6 +77,7 @@ def test_run_service_persists_raw_api_in_debug_mode(tmp_path: Path, insightvm_te
         log_level="INFO",
         log_file=str(tmp_path / "logs" / "integration.log"),
         payload_dir=str(tmp_path / "payloads"),
+        persist_payload_artifacts=True,
         backend_enabled=False,
         backend_url="http://127.0.0.1:9999/txdxsecure/guarda_alarma.php",
         backend_local="Txdxsecure",
@@ -119,6 +121,7 @@ def test_run_service_does_not_retry_unauthorized_and_only_persists_meta(tmp_path
         log_level="INFO",
         log_file=str(tmp_path / "logs" / "integration.log"),
         payload_dir=str(tmp_path / "payloads"),
+        persist_payload_artifacts=True,
         backend_enabled=False,
         backend_url="http://127.0.0.1:9999/txdxsecure/guarda_alarma.php",
         backend_local="Txdxsecure",
@@ -156,6 +159,7 @@ def test_run_service_failed_cycle_keeps_previous_latest_payloads(tmp_path: Path,
         log_level="INFO",
         log_file=str(tmp_path / "logs" / "integration.log"),
         payload_dir=str(payload_dir),
+        persist_payload_artifacts=True,
         backend_enabled=False,
         backend_url="http://127.0.0.1:9999/txdxsecure/guarda_alarma.php",
         backend_local="Txdxsecure",
@@ -185,6 +189,7 @@ def test_run_service_failed_cycle_keeps_previous_latest_payloads(tmp_path: Path,
         log_level="INFO",
         log_file=str(tmp_path / "logs" / "integration.log"),
         payload_dir=str(payload_dir),
+        persist_payload_artifacts=True,
         backend_enabled=False,
         backend_url="http://127.0.0.1:9999/txdxsecure/guarda_alarma.php",
         backend_local="Txdxsecure",
@@ -199,3 +204,33 @@ def test_run_service_failed_cycle_keeps_previous_latest_payloads(tmp_path: Path,
     assert (payload_dir / "prepared_backend_latest.json").read_text(encoding="utf-8") == prepared_before
     meta_data = json.loads((payload_dir / "run_latest.meta.json").read_text(encoding="utf-8"))
     assert meta_data["success"] is False
+
+
+def test_run_service_can_skip_payload_persistence(tmp_path: Path, insightvm_test_server):
+    settings = Settings(
+        insightvm_base_url=insightvm_test_server["base_url"],
+        insightvm_user="u",
+        insightvm_password="p",
+        insightvm_timeout=5,
+        insightvm_verify_ssl=False,
+        page_size=1,
+        interval_seconds=3600,
+        max_retries=1,
+        retry_backoff_seconds=0.0,
+        severities=("critical", "high"),
+        log_level="INFO",
+        log_file=str(tmp_path / "logs" / "integration.log"),
+        payload_dir=str(tmp_path / "payloads"),
+        persist_payload_artifacts=False,
+        backend_enabled=False,
+        backend_url="http://127.0.0.1:9999/txdxsecure/guarda_alarma.php",
+        backend_local="Txdxsecure",
+        backend_alarm_type="1 - Alarma de seguridad",
+        backend_timeout=5,
+        backend_verify_ssl=False,
+    )
+    collector = InsightVMCollector(client=InsightVMClient(settings=settings))
+
+    run_service(settings=settings, collector=collector, once=True)
+
+    assert not (tmp_path / "payloads").exists()

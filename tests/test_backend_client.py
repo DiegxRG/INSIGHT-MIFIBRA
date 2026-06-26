@@ -19,6 +19,7 @@ def _settings(url: str, backend_enabled: bool = True) -> Settings:
         log_level="INFO",
         log_file="logs/integration.log",
         payload_dir="payloads",
+        persist_payload_artifacts=True,
         backend_enabled=backend_enabled,
         backend_url=url,
         backend_local="Txdxsecure",
