@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>InsightVM Snapshot Viewer</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">TXDXSecure x MiFIbra</p>
+        <h1>Viewer de Snapshot InsightVM</h1>
+        <p class="subtitle">Vista simple para validar el payload preparado y su distribución en las tablas `alarmas` y `detalle_alerta_insightvm`.</p>
+      </div>
+      <button id="refreshButton" type="button">Actualizar</button>
+    </header>
+
+    <main class="layout">
+      <section class="summary-grid" id="summaryGrid"></section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Payload del Snapshot</h2>
+          <span class="panel-hint">`prepared_backend_latest.json`</span>
+        </div>
+        <pre id="snapshotPayload">Cargando...</pre>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Tabla `alarmas`</h2>
+          <span class="panel-hint">Vista proyectada del snapshot</span>
+        </div>
+        <div class="table-wrap">
+          <table id="alarmasTable"></table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Tabla `detalle_alerta_insightvm`</h2>
+          <span class="panel-hint">Vista proyectada del snapshot</span>
+        </div>
+        <div class="table-wrap">
+          <table id="detalleTable"></table>
+        </div>
+      </section>
+
+      <section class="panel two-column">
+        <div>
+          <div class="panel-header">
+            <h2>Meta del Último Ciclo</h2>
+          </div>
+          <pre id="metaPayload">Cargando...</pre>
+        </div>
+        <div>
+          <div class="panel-header">
+            <h2>Payload Filtrado</h2>
+          </div>
+          <pre id="filteredPayload">Cargando...</pre>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+  </html>

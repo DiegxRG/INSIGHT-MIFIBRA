@@ -1,0 +1,159 @@
+<mxfile host="app.diagrams.net" modified="2026-06-30T00:00:00.000Z" agent="OpenCode" version="24.7.17" compressed="false">
+  <diagram id="insightvm-flow-es" name="Flujo Integracion">
+    <mxGraphModel dx="1920" dy="1080" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2400" pageHeight="1700" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="titulo" value="Flujo de trabajo de la integración InsightVM Pull" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="20" y="10" width="900" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitulo" value="Consulta, filtrado, detalle, persistencia local opcional y envío al backend" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="20" y="38" width="900" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lane_1" value="1. CLI y Scheduler" style="swimlane;html=1;startSize=28;rounded=0;horizontal=0;swimlaneFillColor=#d5e8d4;fillColor=#f8fff7;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="20" y="70" width="2320" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_2" value="2. Recolección y filtros en InsightVM" style="swimlane;html=1;startSize=28;rounded=0;horizontal=0;swimlaneFillColor=#dae8fc;fillColor=#f7fbff;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="20" y="290" width="2320" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_3" value="3. Persistencia local opcional" style="swimlane;html=1;startSize=28;rounded=0;horizontal=0;swimlaneFillColor=#fff2cc;fillColor=#fffdf5;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="20" y="830" width="2320" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_4" value="4. Envío al backend" style="swimlane;html=1;startSize=28;rounded=0;horizontal=0;swimlaneFillColor=#f8cecc;fillColor=#fff8f8;strokeColor=#b85450;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="20" y="1080" width="2320" height="300" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n1" value="Inicio&#xa;`main.py` ejecuta&#xa;`cli.main()`" style="ellipse;html=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="lane_1">
+          <mxGeometry x="40" y="65" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="n2" value="Cargar `.env` y construir `Settings`&#xa;Valida variables requeridas y flags" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#82b366;arcSize=12;" vertex="1" parent="lane_1">
+          <mxGeometry x="260" y="55" width="260" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="n3" value="Configurar logs&#xa;Crear `InsightVMClient`&#xa;Crear `InsightVMCollector`" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#82b366;arcSize=12;" vertex="1" parent="lane_1">
+          <mxGeometry x="590" y="55" width="260" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="n4" value="Iniciar `run_service()`&#xa;Comienza ciclo y política de reintentos" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#82b366;arcSize=12;" vertex="1" parent="lane_1">
+          <mxGeometry x="920" y="55" width="260" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="n5" value="Fin del ciclo&#xa;`--once`: termina&#xa;sin `--once`: duerme `PULL_INTERVAL_SECONDS`" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#82b366;arcSize=12;" vertex="1" parent="lane_1">
+          <mxGeometry x="1920" y="55" width="320" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="nota_retry" value="Reintentos InsightVM&#xa;- Sí: timeout, conexión, 429, 500, 502, 503, 504&#xa;- No: 401, 403, 404, respuestas inválidas no transitorias" style="shape=note;html=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="lane_1">
+          <mxGeometry x="1260" y="40" width="420" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="insightvm" value="InsightVM API&#xa;`/assets`&#xa;`/assets/{id}/vulnerabilities`&#xa;`/vulnerabilities/{id}`" style="shape=cloud;html=1;whiteSpace=wrap;fillColor=#e1ecff;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="lane_2">
+          <mxGeometry x="60" y="55" width="220" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" value="Consultar assets paginados&#xa;`GET /assets?page=N&amp;size=PAGE_SIZE`&#xa;Se detiene cuando la página trae menos de `PAGE_SIZE`" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#6c8ebf;arcSize=12;" vertex="1" parent="lane_2">
+          <mxGeometry x="330" y="55" width="300" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="Consultar vulnerabilidades por asset&#xa;`GET /assets/{id}/vulnerabilities?page=N&amp;size=PAGE_SIZE`&#xa;Hasta 8 workers en paralelo" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#6c8ebf;arcSize=12;" vertex="1" parent="lane_2">
+          <mxGeometry x="700" y="55" width="330" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="Filtro temprano sobre cada referencia&#xa;- descarta `status != vulnerable`&#xa;- si la severidad ya viene y no está permitida, se descarta antes del detalle" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#6c8ebf;arcSize=12;" vertex="1" parent="lane_2">
+          <mxGeometry x="1100" y="55" width="360" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="Armar candidatos&#xa;Conserva datos del asset + `raw_ref`&#xa;Deduplica `vulnerability_id`" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#6c8ebf;arcSize=12;" vertex="1" parent="lane_2">
+          <mxGeometry x="1530" y="55" width="260" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" value="Consultar detalle técnico&#xa;`GET /vulnerabilities/{id}`&#xa;Solo para IDs únicos necesarios&#xa;Hasta 8 workers en paralelo" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#6c8ebf;arcSize=12;" vertex="1" parent="lane_2">
+          <mxGeometry x="1860" y="55" width="330" height="95" as="geometry" />
+        </mxCell>
+
+        <mxCell id="c6" value="Construir findings finales&#xa;Combina asset + referencia + detalle&#xa;Calcula título, severidad, CVSS, CVEs y `fechaalarma`" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#6c8ebf;arcSize=12;" vertex="1" parent="lane_2">
+          <mxGeometry x="360" y="245" width="330" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="c7" value="Filtro final por severidad&#xa;Se queda solo con `ALERT_SEVERITIES`&#xa;Genera payload compacto: `findings` + `meta`" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#6c8ebf;arcSize=12;" vertex="1" parent="lane_2">
+          <mxGeometry x="780" y="245" width="310" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="c8" value="Preparar payload para backend&#xa;Una alarma por finding&#xa;Campos clave: `finding_id`, `servidor`, `ip`, `TipoAlarma`, `Local`, `fechaalarma`" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#6c8ebf;arcSize=12;" vertex="1" parent="lane_2">
+          <mxGeometry x="1180" y="245" width="390" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="c9" value="Armar metadatos del ciclo&#xa;Estado, error, conteos, duración, reintentos, resultado backend" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#6c8ebf;arcSize=12;" vertex="1" parent="lane_2">
+          <mxGeometry x="1660" y="245" width="320" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="nota_parallel" value="Comportamientos importantes&#xa;- fetch de vulnerabilidades por asset en paralelo&#xa;- fetch de detalle en paralelo&#xa;- si se detecta repetición de página, se corta esa paginación" style="shape=note;html=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="lane_2">
+          <mxGeometry x="1980" y="230" width="250" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="almacen_local" value="Artefactos locales&#xa;Carpeta `payloads/`" style="shape=cylinder3;html=1;whiteSpace=wrap;boundedLbl=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="lane_3">
+          <mxGeometry x="1710" y="55" width="180" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="s1" value="¿Persistir artefactos locales?&#xa;`PERSIST_PAYLOAD_ARTIFACTS`" style="rhombus;html=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane_3">
+          <mxGeometry x="310" y="70" width="240" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="Guardar archivos base&#xa;- `filtered_latest.json`&#xa;- `prepared_backend_latest.json`&#xa;- `run_latest.meta.json`" style="shape=document;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#d6b656;" vertex="1" parent="lane_3">
+          <mxGeometry x="700" y="55" width="280" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="¿Guardar raw API para debug?&#xa;`PERSIST_RAW_API_DEBUG`" style="rhombus;html=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane_3">
+          <mxGeometry x="1070" y="70" width="220" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="s4" value="Guardar también&#xa;`raw_api_YYYYmmdd_HHMMSS.json`" style="shape=document;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#d6b656;" vertex="1" parent="lane_3">
+          <mxGeometry x="1380" y="70" width="230" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="s5" value="No se guarda nada en disco&#xa;Solo quedan logs en ejecución" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#d6b656;arcSize=12;" vertex="1" parent="lane_3">
+          <mxGeometry x="700" y="185" width="280" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="backend_api" value="Backend / API receptora&#xa;`POST BACKEND_URL`" style="shape=hexagon;html=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" vertex="1" parent="lane_4">
+          <mxGeometry x="1170" y="150" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="backend_db" value="BD externa del backend&#xa;Persistencia fuera de esta integración" style="shape=cylinder3;html=1;whiteSpace=wrap;boundedLbl=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" vertex="1" parent="lane_4">
+          <mxGeometry x="1490" y="145" width="190" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="b1" value="¿Enviar al backend?&#xa;`BACKEND_ENABLED`" style="rhombus;html=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="lane_4">
+          <mxGeometry x="280" y="85" width="230" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" value="No enviar&#xa;Se detiene después de preparar payload y meta" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#b85450;arcSize=12;" vertex="1" parent="lane_4">
+          <mxGeometry x="640" y="75" width="280" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="b3" value="Enviar una alarma por finding&#xa;No hay retry automático para el backend&#xa;Se evita duplicar eventos" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#b85450;arcSize=12;" vertex="1" parent="lane_4">
+          <mxGeometry x="640" y="175" width="320" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="b4" value="Clasificar respuesta&#xa;- `sent_ok`&#xa;- `conflicts`&#xa;- `validation_errors`&#xa;- `backend_errors`" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#b85450;arcSize=12;" vertex="1" parent="lane_4">
+          <mxGeometry x="1770" y="145" width="250" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="b5" value="Cerrar ciclo&#xa;Registrar resultado y terminar / dormir" style="ellipse;html=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" vertex="1" parent="lane_4">
+          <mxGeometry x="2090" y="150" width="170" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="n1" target="n2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="n2" target="n3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="n3" target="n4"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="e4" value="consulta" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="n4" target="c1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="insightvm" target="c1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="c1" target="c2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="c2" target="c3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="c3" target="c4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="c4" target="c5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="c5" target="c6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="c6" target="c7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="c7" target="c8"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="c8" target="c9"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="e14" value="persistencia" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1" source="c8" target="s1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e15" value="sí" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1" source="s1" target="s2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e16" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1" source="s1" target="s5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e17" value="raw debug" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1" source="s2" target="s3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e18" value="sí" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1" source="s3" target="s4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e19" value="guardar" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1" source="s2" target="almacen_local"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e20" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1" source="s4" target="almacen_local"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="e21" value="decidir envío" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="c9" target="b1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e22" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="b1" target="b2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e23" value="sí" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="b1" target="b3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e24" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="b3" target="backend_api"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e25" value="persiste externo" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="backend_api" target="backend_db"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e26" value="respuesta" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="backend_api" target="b4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e27" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="backend_db" target="b4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e28" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="b2" target="b5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e29" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="b4" target="b5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e30" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="b5" target="n5"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

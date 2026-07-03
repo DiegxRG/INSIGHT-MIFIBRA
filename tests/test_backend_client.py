@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from insightvm_pull.backend_client import BackendAlarmClient
 from insightvm_pull.config import Settings
 
@@ -49,15 +51,20 @@ def test_backend_send_success(backend_alarm_test_server):
     result = client.send_filtered_findings(payload)
     assert result["sent_ok"] == 1
     assert result["backend_errors"] == 0
+    assert result["snapshot_id"]
     sent_payload = backend_alarm_test_server["state"].requests[0]
-    assert sent_payload["finding_id"] == "282_windows-hotfix-ms03-007"
-    assert sent_payload["asset_id"] == "282"
-    assert sent_payload["vulnerability_id"] == "windows-hotfix-ms03-007"
-    assert sent_payload["severity"] == "Critical"
-    assert sent_payload["cvss_score"] == 9.8
-    assert sent_payload["cves"] == "CVE-2017-11804"
-    assert sent_payload["source"] == "insightvm"
-    assert "insightvm_status" not in sent_payload
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", sent_payload["snapshot_id"])
+    assert len(sent_payload["alarms"]) == 1
+    alarm = sent_payload["alarms"][0]
+    assert alarm["finding_id"] == "282_windows-hotfix-ms03-007"
+    assert alarm["asset_id"] == "282"
+    assert alarm["vulnerability_id"] == "windows-hotfix-ms03-007"
+    assert alarm["severity"] == "Critical"
+    assert alarm["cvss_score"] == 9.8
+    assert alarm["cves"] == ["CVE-2017-11804"]
+    assert alarm["source"] == "Rapid7-InsightVM"
+    assert alarm["TipoAlarma"] == "Alarma de seguridad de InsightVM x TXDXSecure"
+    assert "insightvm_status" not in alarm
 
 
 def test_backend_send_conflict(backend_alarm_test_server):
@@ -107,15 +114,16 @@ def test_backend_prepare_filtered_findings_includes_extended_fields(backend_alar
         ]
     }
 
-    prepared = client.prepare_filtered_findings(payload)
+    prepared = client.prepare_filtered_findings(payload, snapshot_id="2026-07-02T11:00:00Z")
 
     assert prepared["prepared_alarms_count"] == 1
+    assert prepared["snapshot_id"] == "2026-07-02T11:00:00Z"
     alarm = prepared["alarms"][0]
     assert alarm == {
         "finding_id": "282_windows-hotfix-ms03-007",
         "servidor": "OLT-PRUEBA-01",
         "ip": "10.0.0.100",
-        "TipoAlarma": "1 - Alarma de seguridad [Critical] - Microsoft CVE-2017-11804",
+        "TipoAlarma": "Alarma de seguridad de InsightVM x TXDXSecure",
         "Local": "Txdxsecure",
         "fechaalarma": "2026-05-27 16:10:00",
         "asset_id": "282",
@@ -123,8 +131,12 @@ def test_backend_prepare_filtered_findings_includes_extended_fields(backend_alar
         "vulnerability_title": "Microsoft CVE-2017-11804",
         "severity": "Critical",
         "cvss_score": 9.8,
-        "cves": "CVE-2017-11804",
-        "source": "insightvm",
+        "cves": ["CVE-2017-11804"],
+        "source": "Rapid7-InsightVM",
+    }
+    assert prepared["request_payload"] == {
+        "snapshot_id": "2026-07-02T11:00:00Z",
+        "alarms": [alarm],
     }
     assert "skipped_findings" not in prepared
 
@@ -168,7 +180,8 @@ def test_backend_prepare_uses_ip_when_hostname_missing(backend_alarm_test_server
                     "title": "Fallback host",
                 }
             ]
-        }
+        },
+        snapshot_id="2026-07-02T11:00:00Z",
     )
 
     alarm = prepared["alarms"][0]

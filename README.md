@@ -38,6 +38,25 @@ py main.py --env-file .env --once
 py -m pytest -q
 ```
 
+5. Levantar viewer local de validacion:
+
+```bash
+py -m backend.server --payload-dir payloads --frontend-dir frontend --port 8787
+```
+
+Luego abrir:
+
+```text
+http://127.0.0.1:8787
+```
+
+El viewer muestra:
+
+- el snapshot final preparado para backend;
+- la proyeccion de ese snapshot sobre las tablas `alarmas` y `detalle_alerta_insightvm`;
+- el `run_latest.meta.json`;
+- el `filtered_latest.json`.
+
 ## Dónde ver resultados
 
 - Logs:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 
 from insightvm_pull import cli
 
@@ -19,6 +20,7 @@ def test_cli_once_smoke_real_server(monkeypatch, tmp_path: Path, insightvm_test_
                 "MAX_RETRIES=1",
                 "ALERT_SEVERITIES=critical,high",
                 "BACKEND_ENABLED=false",
+                "PERSIST_PAYLOAD_ARTIFACTS=true",
                 f"LOG_FILE={tmp_path / 'logs' / 'integration.log'}",
                 f"PAYLOAD_DIR={tmp_path / 'payloads'}",
             ]
@@ -35,6 +37,9 @@ def test_cli_once_smoke_real_server(monkeypatch, tmp_path: Path, insightvm_test_
     prepared_data = json.loads(prepared.read_text(encoding="utf-8"))
     assert filtered_data["meta"]["allowed_severities"] == ["critical", "high"]
     assert set(filtered_data.keys()) == {"findings", "meta"}
-    assert prepared_data["prepared_alarms_count"] == 1
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", prepared_data["snapshot_id"])
+    assert len(prepared_data["alarms"]) == 1
     assert prepared_data["alarms"][0]["finding_id"] == "a1_v1"
+    assert prepared_data["alarms"][0]["TipoAlarma"] == "Alarma de seguridad de InsightVM x TXDXSecure"
+    assert prepared_data["alarms"][0]["source"] == "Rapid7-InsightVM"
     assert "insightvm_status" not in prepared_data["alarms"][0]

@@ -48,7 +48,11 @@ def persist_cycle_payloads(
         paths["filtered"] = str(filtered_path)
 
     if isinstance(prepared_backend_payload, dict):
-        write_json(prepared_backend_path, prepared_backend_payload)
+        request_payload = prepared_backend_payload.get("request_payload")
+        if isinstance(request_payload, dict):
+            write_json(prepared_backend_path, request_payload)
+        else:
+            write_json(prepared_backend_path, prepared_backend_payload)
         paths["prepared_backend"] = str(prepared_backend_path)
 
     write_json(meta_path, run_meta)

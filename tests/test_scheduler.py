@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from insightvm_pull.client import InsightVMClient
@@ -52,13 +53,17 @@ def test_run_service_retries_and_persists_real_server(tmp_path: Path, insightvm_
     assert filtered_data["findings"][0]["asset_hostname"] == "srv-1"
     assert "raw" not in filtered_data["findings"][0]
     assert "raw_ref" not in filtered_data["findings"][0]
-    assert prepared_data["prepared_alarms_count"] == 1
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", prepared_data["snapshot_id"])
+    assert len(prepared_data["alarms"]) == 1
     assert prepared_data["alarms"][0]["finding_id"] == "a1_v1"
     assert prepared_data["alarms"][0]["severity"] == "Critical"
+    assert prepared_data["alarms"][0]["TipoAlarma"] == "Alarma de seguridad de InsightVM x TXDXSecure"
+    assert prepared_data["alarms"][0]["source"] == "Rapid7-InsightVM"
+    assert prepared_data["alarms"][0]["cves"] == []
     assert "insightvm_status" not in prepared_data["alarms"][0]
     assert "estado" not in prepared_data["alarms"][0]
-    assert "skipped_findings" not in prepared_data
     assert meta_data["success"] is True
+    assert prepared_data["snapshot_id"] == meta_data["snapshot_id"]
     assert server["state"].assets_calls == 3
 
 
