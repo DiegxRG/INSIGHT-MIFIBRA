@@ -3,66 +3,110 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>InsightVM Snapshot Viewer</title>
+    <title>MiFibra | Alertas InsightVM</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="hero">
-      <div>
-        <p class="eyebrow">TXDXSecure x MiFIbra</p>
-        <h1>Viewer de Snapshot InsightVM</h1>
-        <p class="subtitle">Vista simple para validar el payload preparado y su distribución en las tablas `alarmas` y `detalle_alerta_insightvm`.</p>
+    <header class="topbar">
+      <div class="brand-block">
+        <img class="brand-logo" src="/assets/logo" alt="MiFibra" />
+        <div>
+          <p class="eyebrow">Centro de alertas de ciberseguridad</p>
+          <h1>Integración InsightVM x MiFibra</h1>
+          <p class="subtitle">Vista operativa del snapshot enviado y su distribución en `alarmas` y `detalle_alerta_insightvm`.</p>
+        </div>
       </div>
-      <button id="refreshButton" type="button">Actualizar</button>
+      <div class="topbar-actions">
+        <div class="badge-cluster">
+          <span class="brand-pill">MiFibra</span>
+          <span class="brand-pill secondary">TXDXSecure</span>
+        </div>
+        <button id="refreshButton" type="button">Actualizar vista</button>
+      </div>
     </header>
 
-    <main class="layout">
-      <section class="summary-grid" id="summaryGrid"></section>
-
-      <section class="panel">
-        <div class="panel-header">
-          <h2>Payload del Snapshot</h2>
-          <span class="panel-hint">`prepared_backend_latest.json`</span>
-        </div>
-        <pre id="snapshotPayload">Cargando...</pre>
+    <main class="dashboard">
+      <section class="hero-grid">
+        <article class="hero-card hero-accent">
+          <div class="hero-label">Snapshot Activo</div>
+          <div class="hero-value" id="heroSnapshotId">-</div>
+          <div class="hero-meta" id="heroSnapshotFile">Sin archivo cargado</div>
+        </article>
+        <article class="hero-card">
+          <div class="hero-label">Alarmas del Lote</div>
+          <div class="hero-value" id="heroAlarmsCount">0</div>
+          <div class="hero-meta" id="heroCriticalHigh">Critical: 0 | High: 0</div>
+        </article>
+        <article class="hero-card">
+          <div class="hero-label">CVSS Máximo</div>
+          <div class="hero-value" id="heroMaxCvss">0.0</div>
+          <div class="hero-meta" id="heroAvgCvss">Promedio: 0.0</div>
+        </article>
+        <article class="hero-card">
+          <div class="hero-label">Último Ciclo</div>
+          <div class="hero-value" id="heroCycleStatus">-</div>
+          <div class="hero-meta" id="heroStartedAt">-</div>
+        </article>
       </section>
 
-      <section class="panel">
-        <div class="panel-header">
-          <h2>Tabla `alarmas`</h2>
-          <span class="panel-hint">Vista proyectada del snapshot</span>
-        </div>
-        <div class="table-wrap">
-          <table id="alarmasTable"></table>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-header">
-          <h2>Tabla `detalle_alerta_insightvm`</h2>
-          <span class="panel-hint">Vista proyectada del snapshot</span>
-        </div>
-        <div class="table-wrap">
-          <table id="detalleTable"></table>
-        </div>
-      </section>
-
-      <section class="panel two-column">
-        <div>
-          <div class="panel-header">
-            <h2>Meta del Último Ciclo</h2>
+      <section class="content-grid">
+        <aside class="sidebar panel">
+          <div class="panel-header compact">
+            <h2>Control del Snapshot</h2>
           </div>
-          <pre id="metaPayload">Cargando...</pre>
-        </div>
-        <div>
-          <div class="panel-header">
-            <h2>Payload Filtrado</h2>
+
+          <label class="field-label" for="snapshotSelect">Snapshot disponible</label>
+          <select id="snapshotSelect"></select>
+
+          <div class="sidebar-group">
+            <h3>Estado del Ciclo</h3>
+            <dl class="meta-list" id="metaList"></dl>
           </div>
-          <pre id="filteredPayload">Cargando...</pre>
-        </div>
+
+          <div class="sidebar-group">
+            <h3>Payload Filtrado</h3>
+            <pre id="filteredPayload">Cargando...</pre>
+          </div>
+        </aside>
+
+        <section class="workspace">
+          <div class="tabs" role="tablist" aria-label="Vistas del snapshot">
+            <button class="tab is-active" data-tab="alertas" role="tab" type="button">Tabla Alertas</button>
+            <button class="tab" data-tab="detalle" role="tab" type="button">Tabla Detalle</button>
+            <button class="tab" data-tab="payload" role="tab" type="button">Payload Completo Enviado</button>
+          </div>
+
+          <section class="tab-panel is-active panel" data-panel="alertas">
+            <div class="panel-header">
+              <h2>Tabla `alarmas`</h2>
+              <span class="panel-hint">Vista operativa del mismo snapshot</span>
+            </div>
+            <div class="table-wrap">
+              <table id="alarmasTable"></table>
+            </div>
+          </section>
+
+          <section class="tab-panel panel" data-panel="detalle">
+            <div class="panel-header">
+              <h2>Tabla `detalle_alerta_insightvm`</h2>
+              <span class="panel-hint">Relación técnica por `finding_id + snapshot_id`</span>
+            </div>
+            <div class="table-wrap">
+              <table id="detalleTable"></table>
+            </div>
+          </section>
+
+          <section class="tab-panel panel" data-panel="payload">
+            <div class="panel-header">
+              <h2>Payload del Snapshot</h2>
+              <span class="panel-hint">JSON listo para envío</span>
+            </div>
+            <pre id="snapshotPayload">Cargando...</pre>
+          </section>
+        </section>
       </section>
     </main>
 
     <script src="app.js"></script>
   </body>
-  </html>
+</html>
