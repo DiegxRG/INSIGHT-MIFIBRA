@@ -50,6 +50,8 @@ class Settings:
     backend_timeout: int
     backend_verify_ssl: bool
     persist_raw_api_debug: bool = False
+    backend_dedupe_last_snapshot: bool = True
+    backend_notify_no_changes: bool = False
 
 
 def load_settings(env_file: str = ".env", overrides: dict | None = None) -> Settings:
@@ -83,6 +85,18 @@ def load_settings(env_file: str = ".env", overrides: dict | None = None) -> Sett
     backend_verify_ssl = _truthy(str(ov.get("backend_verify_ssl")) if ov.get("backend_verify_ssl") is not None else os.getenv("BACKEND_VERIFY_SSL"), False)
     persist_raw_api_debug = _truthy(
         str(ov.get("persist_raw_api_debug")) if ov.get("persist_raw_api_debug") is not None else os.getenv("PERSIST_RAW_API_DEBUG"),
+        False,
+    )
+    backend_dedupe_last_snapshot = _truthy(
+        str(ov.get("backend_dedupe_last_snapshot"))
+        if ov.get("backend_dedupe_last_snapshot") is not None
+        else os.getenv("BACKEND_DEDUPE_LAST_SNAPSHOT"),
+        True,
+    )
+    backend_notify_no_changes = _truthy(
+        str(ov.get("backend_notify_no_changes"))
+        if ov.get("backend_notify_no_changes") is not None
+        else os.getenv("BACKEND_NOTIFY_NO_CHANGES"),
         False,
     )
 
@@ -121,4 +135,6 @@ def load_settings(env_file: str = ".env", overrides: dict | None = None) -> Sett
         backend_timeout=backend_timeout,
         backend_verify_ssl=backend_verify_ssl,
         persist_raw_api_debug=persist_raw_api_debug,
+        backend_dedupe_last_snapshot=backend_dedupe_last_snapshot,
+        backend_notify_no_changes=backend_notify_no_changes,
     )

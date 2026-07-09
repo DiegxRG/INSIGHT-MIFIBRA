@@ -200,6 +200,14 @@ select {
   align-items: start;
 }
 
+.content-grid.unified-mode {
+  grid-template-columns: 1fr;
+}
+
+.content-grid.unified-mode .sidebar {
+  display: none;
+}
+
 .sidebar {
   position: sticky;
   top: 18px;
@@ -320,6 +328,10 @@ pre {
   max-height: 72vh;
   border-radius: 16px;
   border: 1px solid rgba(255, 10, 138, 0.08);
+}
+
+.table-wrap.wide {
+  max-height: 78vh;
 }
 
 table {

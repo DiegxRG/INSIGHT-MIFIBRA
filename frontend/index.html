@@ -49,8 +49,8 @@
         </article>
       </section>
 
-      <section class="content-grid">
-        <aside class="sidebar panel">
+      <section class="content-grid" id="contentGrid">
+        <aside class="sidebar panel" id="sidebarPanel">
           <div class="panel-header compact">
             <h2>Control del Snapshot</h2>
           </div>
@@ -73,6 +73,7 @@
           <div class="tabs" role="tablist" aria-label="Vistas del snapshot">
             <button class="tab is-active" data-tab="alertas" role="tab" type="button">Tabla Alertas</button>
             <button class="tab" data-tab="detalle" role="tab" type="button">Tabla Detalle</button>
+            <button class="tab" data-tab="unificada" role="tab" type="button">Vista Unificada</button>
             <button class="tab" data-tab="payload" role="tab" type="button">Payload Completo Enviado</button>
           </div>
 
@@ -93,6 +94,16 @@
             </div>
             <div class="table-wrap">
               <table id="detalleTable"></table>
+            </div>
+          </section>
+
+          <section class="tab-panel panel" data-panel="unificada">
+            <div class="panel-header">
+              <h2>Vista Unificada</h2>
+              <span class="panel-hint">Alarma y detalle técnico en una sola tabla</span>
+            </div>
+            <div class="table-wrap wide">
+              <table id="unifiedTable"></table>
             </div>
           </section>
 

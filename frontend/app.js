@@ -2,9 +2,11 @@ const snapshotPayload = document.getElementById("snapshotPayload");
 const filteredPayload = document.getElementById("filteredPayload");
 const alarmasTable = document.getElementById("alarmasTable");
 const detalleTable = document.getElementById("detalleTable");
+const unifiedTable = document.getElementById("unifiedTable");
 const refreshButton = document.getElementById("refreshButton");
 const snapshotSelect = document.getElementById("snapshotSelect");
 const metaList = document.getElementById("metaList");
+const contentGrid = document.getElementById("contentGrid");
 const heroSnapshotId = document.getElementById("heroSnapshotId");
 const heroSnapshotFile = document.getElementById("heroSnapshotFile");
 const heroAlarmsCount = document.getElementById("heroAlarmsCount");
@@ -34,6 +36,7 @@ refreshButton.addEventListener("click", refresh);
 function activateTab(tabName) {
   tabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.tab === tabName));
   panels.forEach((panel) => panel.classList.toggle("is-active", panel.dataset.panel === tabName));
+  contentGrid.classList.toggle("unified-mode", tabName === "unificada");
 }
 
 function buildStateUrl() {
@@ -137,6 +140,27 @@ function renderTable(tableElement, rows, tableName) {
   tableElement.innerHTML = thead + tbody;
 }
 
+function buildUnifiedRows(snapshot) {
+  const alarms = Array.isArray(snapshot?.alarms) ? snapshot.alarms : [];
+  const snapshotId = snapshot?.snapshot_id || null;
+  return alarms.map((alarm) => ({
+    snapshot_id: snapshotId,
+    finding_id: alarm.finding_id,
+    servidor: alarm.servidor,
+    ip: alarm.ip,
+    TipoAlarma: alarm.TipoAlarma,
+    Local: alarm.Local,
+    fechaalarma: alarm.fechaalarma,
+    asset_id: alarm.asset_id,
+    vulnerability_id: alarm.vulnerability_id,
+    vulnerability_title: alarm.vulnerability_title,
+    severity: alarm.severity,
+    cvss_score: alarm.cvss_score,
+    cves: alarm.cves,
+    source: alarm.source,
+  }));
+}
+
 function formatCell(header, value, row, tableName) {
   if (header === "severity") {
     const severity = String(value || "-").trim();
@@ -206,6 +230,7 @@ function renderState(state) {
   filteredPayload.textContent = JSON.stringify(state.filtered || {}, null, 2);
   renderTable(detalleTable, state.tables?.detalle_alerta_insightvm || [], "detalle_alerta_insightvm");
   renderTable(alarmasTable, state.tables?.alarmas || [], "alarmas");
+  renderTable(unifiedTable, buildUnifiedRows(state.snapshot || {}), "unificada");
 }
 
 async function refresh() {

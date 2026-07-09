@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -12,6 +14,7 @@ log = logging.getLogger("insightvm_pull.backend")
 
 FIXED_ALARM_TYPE = "Alarma de seguridad de InsightVM x TXDXSecure"
 FIXED_SOURCE = "Rapid7-InsightVM"
+LAST_BACKEND_SNAPSHOT_FILE = "backend_last_snapshot.json"
 
 
 class BackendAlarmClient:
@@ -86,6 +89,15 @@ class BackendAlarmClient:
 
         validation_errors = int(prepared_payload.get("validation_errors", 0))
         details: list[dict[str, Any]] = list(prepared_payload.get("skipped_findings", []))
+        dedupe_enabled = bool(self.settings.backend_dedupe_last_snapshot)
+        notify_no_changes = bool(self.settings.backend_notify_no_changes)
+        baseline_path = _last_backend_snapshot_path(self.settings)
+        duplicate_skipped = 0
+        alarms_to_send = alarms
+        if dedupe_enabled:
+            previous_ids = _load_last_snapshot_finding_ids(baseline_path)
+            alarms_to_send, duplicate_skipped = _filter_new_alarms(alarms, previous_ids)
+
         if not self.settings.backend_enabled:
             return {
                 "enabled": False,
@@ -93,6 +105,10 @@ class BackendAlarmClient:
                 "snapshot_id": snapshot_id,
                 "total_filtered_findings": int(prepared_payload.get("total_filtered_findings", len(alarms))),
                 "prepared_alarms": len(alarms),
+                "new_alarms": len(alarms_to_send),
+                "duplicate_skipped": duplicate_skipped,
+                "dedupe_enabled": dedupe_enabled,
+                "notify_no_changes": notify_no_changes,
                 "sent_ok": 0,
                 "conflicts": 0,
                 "validation_errors": validation_errors,
@@ -104,14 +120,69 @@ class BackendAlarmClient:
         conflicts = 0
         backend_errors = 0
 
-        result = self._post_snapshot(request_payload)
+        if dedupe_enabled and not alarms_to_send:
+            _write_last_snapshot(baseline_path, snapshot_id, alarms)
+            post_skipped = True
+            no_change_notification_sent = False
+            no_change_notification_error = False
+            if notify_no_changes:
+                result = self._post_snapshot(
+                    _build_no_changes_payload(
+                        snapshot_id=snapshot_id,
+                        prepared_alarms=len(alarms),
+                        duplicate_skipped=duplicate_skipped,
+                    )
+                )
+                details.append(result)
+                post_skipped = False
+                no_change_notification_sent = result.get("success") is True
+                no_change_notification_error = not no_change_notification_sent
+            else:
+                details.append(
+                    {
+                        "success": True,
+                        "message": "No new alarms to send after last-snapshot dedupe",
+                        "snapshot_payload": {"snapshot_id": snapshot_id, "alarms": []},
+                    }
+                )
+            log.info(
+                "snapshot_id=%s no new backend alarms prepared=%s duplicate_skipped=%s notify_no_changes=%s",
+                snapshot_id,
+                len(alarms),
+                duplicate_skipped,
+                notify_no_changes,
+            )
+            return {
+                "enabled": self.settings.backend_enabled,
+                "skipped": False,
+                "post_skipped": post_skipped,
+                "snapshot_id": snapshot_id,
+                "total_filtered_findings": int(prepared_payload.get("total_filtered_findings", len(alarms))),
+                "prepared_alarms": len(alarms),
+                "new_alarms": 0,
+                "duplicate_skipped": duplicate_skipped,
+                "dedupe_enabled": dedupe_enabled,
+                "notify_no_changes": notify_no_changes,
+                "no_change_notification_sent": no_change_notification_sent,
+                "no_change_notification_error": no_change_notification_error,
+                "sent_ok": 0,
+                "conflicts": 0,
+                "validation_errors": validation_errors,
+                "backend_errors": 0,
+                "details": details,
+            }
+
+        send_payload = {"snapshot_id": snapshot_id, "alarms": alarms_to_send}
+        result = self._post_snapshot(send_payload)
         details.append(result)
         if result.get("success") is True:
-            sent_ok = len(alarms)
+            sent_ok = len(alarms_to_send)
+            if dedupe_enabled:
+                _write_last_snapshot(baseline_path, snapshot_id, alarms)
         elif "Ya existe" in str(result.get("message", "")):
-            conflicts = len(alarms)
+            conflicts = len(alarms_to_send)
         else:
-            backend_errors = len(alarms)
+            backend_errors = len(alarms_to_send)
 
         return {
             "enabled": self.settings.backend_enabled,
@@ -119,6 +190,10 @@ class BackendAlarmClient:
             "snapshot_id": snapshot_id,
             "total_filtered_findings": int(prepared_payload.get("total_filtered_findings", len(alarms))),
             "prepared_alarms": len(alarms),
+            "new_alarms": len(alarms_to_send),
+            "duplicate_skipped": duplicate_skipped,
+            "dedupe_enabled": dedupe_enabled,
+            "notify_no_changes": notify_no_changes,
             "sent_ok": sent_ok,
             "conflicts": conflicts,
             "validation_errors": validation_errors,
@@ -209,6 +284,70 @@ def _display_severity(value: str) -> str:
 
 def _build_finding_id(asset_id: str, vulnerability_id: str) -> str:
     return f"{asset_id}_{vulnerability_id}"
+
+
+def _last_backend_snapshot_path(settings: Settings) -> Path:
+    return Path(settings.payload_dir) / LAST_BACKEND_SNAPSHOT_FILE
+
+
+def _load_last_snapshot_finding_ids(path: Path) -> set[str]:
+    if not path.exists() or not path.is_file():
+        return set()
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except Exception as exc:
+        log.warning("Could not load backend last snapshot baseline %s: %s", path, exc)
+        return set()
+    alarms = payload.get("alarms", []) if isinstance(payload, dict) else []
+    if not isinstance(alarms, list):
+        return set()
+    return {
+        str(alarm.get("finding_id")).strip()
+        for alarm in alarms
+        if isinstance(alarm, dict) and str(alarm.get("finding_id") or "").strip()
+    }
+
+
+def _filter_new_alarms(alarms: list[Any], previous_ids: set[str]) -> tuple[list[dict[str, Any]], int]:
+    new_alarms: list[dict[str, Any]] = []
+    current_ids: set[str] = set()
+    duplicate_skipped = 0
+    for alarm in alarms:
+        if not isinstance(alarm, dict):
+            continue
+        finding_id = str(alarm.get("finding_id") or "").strip()
+        if finding_id and (finding_id in previous_ids or finding_id in current_ids):
+            duplicate_skipped += 1
+            continue
+        if finding_id:
+            current_ids.add(finding_id)
+        new_alarms.append(alarm)
+    return new_alarms, duplicate_skipped
+
+
+def _write_last_snapshot(path: Path, snapshot_id: str, alarms: list[Any]) -> None:
+    payload = {
+        "snapshot_id": snapshot_id,
+        "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "alarms": [alarm for alarm in alarms if isinstance(alarm, dict)],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+
+
+def _build_no_changes_payload(snapshot_id: str, prepared_alarms: int, duplicate_skipped: int) -> dict[str, Any]:
+    return {
+        "snapshot_id": snapshot_id,
+        "alarms": [],
+        "no_changes": True,
+        "message": "Data extracted successfully; no new vulnerabilities detected",
+        "prepared_alarms": prepared_alarms,
+        "new_alarms": 0,
+        "duplicate_skipped": duplicate_skipped,
+        "source": FIXED_SOURCE,
+    }
 
 
 def build_snapshot_id() -> str:
