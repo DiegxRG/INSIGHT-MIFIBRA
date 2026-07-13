@@ -93,10 +93,20 @@ class BackendAlarmClient:
         notify_no_changes = bool(self.settings.backend_notify_no_changes)
         baseline_path = _last_backend_snapshot_path(self.settings)
         duplicate_skipped = 0
-        alarms_to_send = alarms
+        current_ids = _finding_ids_from_alarms(alarms)
+        previous_ids: set[str] = set()
+        added_alarms = len(current_ids)
+        removed_alarms = 0
+        unchanged_alarms = 0
+        snapshot_changed = True
         if dedupe_enabled:
             previous_ids = _load_last_snapshot_finding_ids(baseline_path)
-            alarms_to_send, duplicate_skipped = _filter_new_alarms(alarms, previous_ids)
+            added_alarms = len(current_ids - previous_ids)
+            removed_alarms = len(previous_ids - current_ids)
+            unchanged_alarms = len(current_ids & previous_ids)
+            snapshot_changed = current_ids != previous_ids
+            if not snapshot_changed:
+                duplicate_skipped = len(alarms)
 
         if not self.settings.backend_enabled:
             return {
@@ -105,7 +115,13 @@ class BackendAlarmClient:
                 "snapshot_id": snapshot_id,
                 "total_filtered_findings": int(prepared_payload.get("total_filtered_findings", len(alarms))),
                 "prepared_alarms": len(alarms),
-                "new_alarms": len(alarms_to_send),
+                "new_alarms": added_alarms,
+                "added_alarms": added_alarms,
+                "removed_alarms": removed_alarms,
+                "unchanged_alarms": unchanged_alarms,
+                "previous_alarms": len(previous_ids),
+                "snapshot_changed": snapshot_changed,
+                "sent_full_snapshot": False,
                 "duplicate_skipped": duplicate_skipped,
                 "dedupe_enabled": dedupe_enabled,
                 "notify_no_changes": notify_no_changes,
@@ -120,8 +136,7 @@ class BackendAlarmClient:
         conflicts = 0
         backend_errors = 0
 
-        if dedupe_enabled and not alarms_to_send:
-            _write_last_snapshot(baseline_path, snapshot_id, alarms)
+        if dedupe_enabled and not snapshot_changed:
             post_skipped = True
             no_change_notification_sent = False
             no_change_notification_error = False
@@ -146,7 +161,7 @@ class BackendAlarmClient:
                     }
                 )
             log.info(
-                "snapshot_id=%s no new backend alarms prepared=%s duplicate_skipped=%s notify_no_changes=%s",
+                "snapshot_id=%s unchanged backend snapshot prepared=%s duplicate_skipped=%s notify_no_changes=%s",
                 snapshot_id,
                 len(alarms),
                 duplicate_skipped,
@@ -160,6 +175,12 @@ class BackendAlarmClient:
                 "total_filtered_findings": int(prepared_payload.get("total_filtered_findings", len(alarms))),
                 "prepared_alarms": len(alarms),
                 "new_alarms": 0,
+                "added_alarms": 0,
+                "removed_alarms": 0,
+                "unchanged_alarms": unchanged_alarms,
+                "previous_alarms": len(previous_ids),
+                "snapshot_changed": False,
+                "sent_full_snapshot": False,
                 "duplicate_skipped": duplicate_skipped,
                 "dedupe_enabled": dedupe_enabled,
                 "notify_no_changes": notify_no_changes,
@@ -172,17 +193,17 @@ class BackendAlarmClient:
                 "details": details,
             }
 
-        send_payload = {"snapshot_id": snapshot_id, "alarms": alarms_to_send}
+        send_payload = {"snapshot_id": snapshot_id, "alarms": alarms}
         result = self._post_snapshot(send_payload)
         details.append(result)
         if result.get("success") is True:
-            sent_ok = len(alarms_to_send)
+            sent_ok = len(alarms)
             if dedupe_enabled:
                 _write_last_snapshot(baseline_path, snapshot_id, alarms)
         elif "Ya existe" in str(result.get("message", "")):
-            conflicts = len(alarms_to_send)
+            conflicts = len(alarms)
         else:
-            backend_errors = len(alarms_to_send)
+            backend_errors = len(alarms)
 
         return {
             "enabled": self.settings.backend_enabled,
@@ -190,7 +211,13 @@ class BackendAlarmClient:
             "snapshot_id": snapshot_id,
             "total_filtered_findings": int(prepared_payload.get("total_filtered_findings", len(alarms))),
             "prepared_alarms": len(alarms),
-            "new_alarms": len(alarms_to_send),
+            "new_alarms": added_alarms,
+            "added_alarms": added_alarms,
+            "removed_alarms": removed_alarms,
+            "unchanged_alarms": unchanged_alarms,
+            "previous_alarms": len(previous_ids),
+            "snapshot_changed": snapshot_changed,
+            "sent_full_snapshot": True,
             "duplicate_skipped": duplicate_skipped,
             "dedupe_enabled": dedupe_enabled,
             "notify_no_changes": notify_no_changes,
@@ -309,21 +336,12 @@ def _load_last_snapshot_finding_ids(path: Path) -> set[str]:
     }
 
 
-def _filter_new_alarms(alarms: list[Any], previous_ids: set[str]) -> tuple[list[dict[str, Any]], int]:
-    new_alarms: list[dict[str, Any]] = []
-    current_ids: set[str] = set()
-    duplicate_skipped = 0
-    for alarm in alarms:
-        if not isinstance(alarm, dict):
-            continue
-        finding_id = str(alarm.get("finding_id") or "").strip()
-        if finding_id and (finding_id in previous_ids or finding_id in current_ids):
-            duplicate_skipped += 1
-            continue
-        if finding_id:
-            current_ids.add(finding_id)
-        new_alarms.append(alarm)
-    return new_alarms, duplicate_skipped
+def _finding_ids_from_alarms(alarms: list[Any]) -> set[str]:
+    return {
+        str(alarm.get("finding_id") or "").strip()
+        for alarm in alarms
+        if isinstance(alarm, dict) and str(alarm.get("finding_id") or "").strip()
+    }
 
 
 def _write_last_snapshot(path: Path, snapshot_id: str, alarms: list[Any]) -> None:

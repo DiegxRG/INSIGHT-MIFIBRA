@@ -4,6 +4,8 @@
 # Runtime output
 logs/
 payloads/
+cloud_audit_log/*
+!cloud_audit_log/.gitkeep
 
 # Python cache/bytecode
 __pycache__/

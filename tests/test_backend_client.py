@@ -199,7 +199,39 @@ def test_backend_prepare_uses_ip_when_hostname_missing(backend_alarm_test_server
     assert alarm["ip"] == "10.0.0.100"
 
 
-def test_backend_dedupe_sends_only_new_alarms(backend_alarm_test_server, tmp_path):
+def test_backend_dedupe_skips_identical_snapshot(backend_alarm_test_server, tmp_path):
+    payload_dir = tmp_path / "payloads"
+    payload_dir.mkdir()
+    (payload_dir / "backend_last_snapshot.json").write_text(
+        json.dumps({"snapshot_id": "previous", "alarms": [{"finding_id": "a1_v1"}]}),
+        encoding="utf-8",
+    )
+    client = BackendAlarmClient(
+        _settings(backend_alarm_test_server["url"], payload_dir=str(payload_dir), backend_dedupe_last_snapshot=True)
+    )
+    alarm = {"finding_id": "a1_v1", "asset_id": "a1", "vulnerability_id": "v1"}
+
+    result = client.send_prepared_alarms(
+        {
+            "snapshot_id": "current",
+            "total_filtered_findings": 1,
+            "validation_errors": 0,
+            "request_payload": {"snapshot_id": "current", "alarms": [alarm]},
+        }
+    )
+
+    assert result["prepared_alarms"] == 1
+    assert result["snapshot_changed"] is False
+    assert result["post_skipped"] is True
+    assert result["new_alarms"] == 0
+    assert result["duplicate_skipped"] == 1
+    assert result["sent_ok"] == 0
+    assert backend_alarm_test_server["state"].requests == []
+    baseline = json.loads((payload_dir / "backend_last_snapshot.json").read_text(encoding="utf-8"))
+    assert {alarm["finding_id"] for alarm in baseline["alarms"]} == {"a1_v1"}
+
+
+def test_backend_dedupe_sends_full_snapshot_when_new_alarm_appears(backend_alarm_test_server, tmp_path):
     payload_dir = tmp_path / "payloads"
     payload_dir.mkdir()
     (payload_dir / "backend_last_snapshot.json").write_text(
@@ -222,11 +254,15 @@ def test_backend_dedupe_sends_only_new_alarms(backend_alarm_test_server, tmp_pat
     )
 
     assert result["prepared_alarms"] == 2
+    assert result["snapshot_changed"] is True
+    assert result["sent_full_snapshot"] is True
     assert result["new_alarms"] == 1
-    assert result["duplicate_skipped"] == 1
-    assert result["sent_ok"] == 1
+    assert result["added_alarms"] == 1
+    assert result["removed_alarms"] == 0
+    assert result["duplicate_skipped"] == 0
+    assert result["sent_ok"] == 2
     sent_payload = backend_alarm_test_server["state"].requests[0]
-    assert sent_payload["alarms"] == [new_alarm]
+    assert sent_payload["alarms"] == [current_alarm, new_alarm]
     baseline = json.loads((payload_dir / "backend_last_snapshot.json").read_text(encoding="utf-8"))
     assert {alarm["finding_id"] for alarm in baseline["alarms"]} == {"a1_v1", "a1_v2"}
 
@@ -251,9 +287,13 @@ def test_backend_dedupe_allows_alarm_to_reappear_after_missing_snapshot(backend_
         }
     )
 
-    assert first_result["post_skipped"] is True
+    assert first_result["snapshot_changed"] is True
+    assert first_result["sent_full_snapshot"] is True
     assert first_result["new_alarms"] == 0
-    assert backend_alarm_test_server["state"].requests == []
+    assert first_result["added_alarms"] == 0
+    assert first_result["removed_alarms"] == 1
+    assert first_result["sent_ok"] == 1
+    assert backend_alarm_test_server["state"].requests[0]["alarms"] == [alarm_v1]
     baseline_after_missing = json.loads((payload_dir / "backend_last_snapshot.json").read_text(encoding="utf-8"))
     assert [alarm["finding_id"] for alarm in baseline_after_missing["alarms"]] == ["a1_v1"]
 
@@ -265,9 +305,11 @@ def test_backend_dedupe_allows_alarm_to_reappear_after_missing_snapshot(backend_
     )
 
     assert second_result["new_alarms"] == 1
-    assert second_result["duplicate_skipped"] == 1
-    assert second_result["sent_ok"] == 1
-    assert backend_alarm_test_server["state"].requests[0]["alarms"] == [alarm_v2]
+    assert second_result["added_alarms"] == 1
+    assert second_result["removed_alarms"] == 0
+    assert second_result["duplicate_skipped"] == 0
+    assert second_result["sent_ok"] == 2
+    assert backend_alarm_test_server["state"].requests[1]["alarms"] == [alarm_v1, alarm_v2]
 
 
 def test_backend_can_notify_no_changes_with_empty_post(backend_alarm_test_server, tmp_path):

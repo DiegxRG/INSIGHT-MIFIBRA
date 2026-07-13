@@ -61,13 +61,13 @@ El viewer muestra:
 
 - Logs:
   - Consola (durante ejecución)
-  - Archivo: `logs/integration.log`
+  - Archivo: `cloud_audit_log/integration.log`
 
 - Payloads (en `payloads/`):
   - `filtered_latest.json` -> data filtrada y compacta por severidad (por defecto `critical,high`).
   - `prepared_backend_latest.json` -> artefacto final listo para backend; su lista `alarms` contiene cada payload exacto que se enviaría si `BACKEND_ENABLED=true`.
   - `run_latest.meta.json` -> metadatos del último ciclo (éxito/error, tiempos, conteos).
-  - `backend_last_snapshot.json` -> baseline operativo usado para evitar duplicados contra el último snapshot backend procesado.
+  - `backend_last_snapshot.json` -> baseline operativo usado para detectar si el snapshot backend actual cambió contra el último snapshot procesado.
   - `raw_api_YYYYmmdd_HHMMSS.json` -> solo se genera si `PERSIST_RAW_API_DEBUG=true` o si se usa `--persist-raw-api-debug`.
 
 Nota importante:
@@ -98,9 +98,10 @@ Avances ya incorporados:
 4. Prepara el payload enriquecido con `finding_id`, `asset_id`, `vulnerability_id`, `vulnerability_title`, `severity`, `cvss_score`, `cves`, `source` y lo guarda en `prepared_backend`.
 5. Si está activo el modo diagnóstico, también persiste `raw_api` para análisis.
 6. Si `BACKEND_ENABLED=true`, compara el payload preparado contra `backend_last_snapshot.json` cuando `BACKEND_DEDUPE_LAST_SNAPSHOT=true`.
-7. Envía al backend (`guarda_alarma.php`) solo los `finding_id` nuevos contra el último snapshot procesado.
+7. Si el conjunto de `finding_id` es idéntico al último snapshot procesado, no envía nada al backend.
+8. Si hay cualquier cambio, envía al backend (`guarda_alarma.php`) el snapshot completo actual.
    Solo se envían hallazgos de severidades configuradas en `ALERT_SEVERITIES` (por defecto: `critical,high`).
-8. Si el envío fue exitoso, actualiza `backend_last_snapshot.json` con el snapshot actual completo para usarlo como baseline de la siguiente corrida.
+9. Si el envío fue exitoso, actualiza `backend_last_snapshot.json` con el snapshot actual completo para usarlo como baseline de la siguiente corrida.
 
 ## Formas de ejecución
 
@@ -161,6 +162,10 @@ py -m pytest -q
 Recomendación para producción:
 si tu plataforma ya tiene scheduler (`cron`, Task Scheduler, Kubernetes CronJob, etc.), lo más simple es ejecutar `py main.py --env-file .env --once --no-persist-payloads` cada domingo a las 09:00.
 
+Guia de despliegue programado: [`docs/PRODUCTION_CRON.md`](docs/PRODUCTION_CRON.md)
+
+Ejemplo de `.env` para produccion: [`.env.production.example`](.env.production.example)
+
 ## Configuración principal (`.env`)
 
 - `INSIGHTVM_BASE_URL`
@@ -215,6 +220,11 @@ Respuestas que maneja:
 El detalle del envío se registra en `run_latest.meta.json` bajo la clave `backend`:
 - `prepared_alarms`
 - `new_alarms`
+- `added_alarms`
+- `removed_alarms`
+- `unchanged_alarms`
+- `snapshot_changed`
+- `sent_full_snapshot`
 - `duplicate_skipped`
 - `sent_ok`
 - `conflicts`
@@ -223,7 +233,7 @@ El detalle del envío se registra en `run_latest.meta.json` bajo la clave `backe
 
 ### Deduplicación backend local
 
-Cuando `BACKEND_DEDUPE_LAST_SNAPSHOT=true`, la integración evita reenviar vulnerabilidades que ya estaban en el último snapshot backend procesado.
+Cuando `BACKEND_DEDUPE_LAST_SNAPSHOT=true`, la integración evita reenviar snapshots idénticos. Si detecta cualquier cambio en el conjunto de `finding_id`, envía el snapshot completo actual.
 
 La comparación usa `finding_id`, construido como:
 
@@ -236,17 +246,24 @@ Flujo por corrida:
 1. Se descarga la data actual desde InsightVM.
 2. Se arma el snapshot actual completo en memoria.
 3. Se leen los `finding_id` de `payloads/backend_last_snapshot.json`.
-4. Se envían solo los `finding_id` que no estaban en ese baseline.
-5. Si el backend responde éxito, `backend_last_snapshot.json` se reemplaza por el snapshot actual completo.
+4. Se compara el conjunto actual de `finding_id` contra el conjunto anterior.
+5. Si son iguales, no se hace POST al backend.
+6. Si hay altas o bajas, se envía el snapshot completo actual.
+7. Si el backend responde éxito, `backend_last_snapshot.json` se reemplaza por el snapshot actual completo.
 
-Esto no es una deduplicación histórica permanente. Solo compara contra el último snapshot procesado. Si una vulnerabilidad desaparece en un escaneo y reaparece después, se volverá a enviar porque ya no estaba en el baseline anterior.
+Esto no es una deduplicación histórica permanente. Solo compara contra el último snapshot procesado. Si una vulnerabilidad desaparece en un escaneo, el siguiente snapshot enviado ya no la incluirá. Si luego reaparece, el snapshot vuelve a cambiar y se envía nuevamente la foto completa.
+
+Ejemplos:
+- `10 -> 10` con los mismos `finding_id`: no se envía nada.
+- `10 -> 12`: se envían las 12 alarmas del snapshot actual.
+- `10 -> 7`: se envían las 7 alarmas del snapshot actual.
 
 Si no hay nuevas alarmas:
 - con `BACKEND_NOTIFY_NO_CHANGES=false`, no se hace POST al backend real y queda registrado en logs/meta;
 - con `BACKEND_NOTIFY_NO_CHANGES=true`, se envía un POST informativo con `alarms: []`, solo si el backend real acepta ese contrato.
 
 Advertencia crítica:
-`backend_last_snapshot.json` es el archivo que evita duplicados. `prepared_backend_latest.json` y `run_latest.meta.json` son evidencia/revisión, no se usan como baseline de deduplicación. Si borras `backend_last_snapshot.json`, la siguiente corrida enviará todo como nuevo.
+`backend_last_snapshot.json` es el archivo que evita reenviar snapshots idénticos. `prepared_backend_latest.json` y `run_latest.meta.json` son evidencia/revisión, no se usan como baseline de deduplicación. Si borras `backend_last_snapshot.json`, la siguiente corrida enviará todo el snapshot actual como nuevo.
 
 ## Política de persistencia
 
